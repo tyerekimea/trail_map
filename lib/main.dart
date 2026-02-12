@@ -15,7 +15,6 @@ import 'services/database_helper.dart';
 import 'screens/saved_places_screen.dart';
 import 'screens/offline_maps_screen.dart';
 
-
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await dotenv.load(fileName: ".env");
@@ -89,7 +88,7 @@ class MapScreenState extends State<MapScreen> {
   String? _distance;
   List<String> _instructions = [];
   BitmapDescriptor? _carIcon;
-  
+
   // Navigation state
   bool _isNavigating = false;
   StreamSubscription<Position>? _positionStream;
@@ -98,7 +97,7 @@ class MapScreenState extends State<MapScreen> {
   int _currentStepIndex = 0;
   LatLng? _currentPosition;
   LatLng? _destination;
-  
+
   // Traffic and offline maps
   bool _showTraffic = false;
   List<SavedPlace> _savedPlaces = [];
@@ -111,7 +110,8 @@ class MapScreenState extends State<MapScreen> {
     _initTts();
     _initPreferences();
     _loadSavedPlaces();
-    debugPrint('API Key loaded: ${dotenv.env['GOOGLE_MAPS_API_KEY'] != null ? 'Yes' : 'No'}');
+    debugPrint(
+        'API Key loaded: ${dotenv.env['GOOGLE_MAPS_API_KEY'] != null ? 'Yes' : 'No'}');
     if (dotenv.env['GOOGLE_MAPS_API_KEY'] == null ||
         dotenv.env['GOOGLE_MAPS_API_KEY']!.isEmpty) {
       setState(() {
@@ -143,9 +143,11 @@ class MapScreenState extends State<MapScreen> {
   Future<void> _loadSavedPlaces() async {
     try {
       final places = await DatabaseHelper.instance.readAll();
-      setState(() {
-        _savedPlaces = places;
-      });
+      if (mounted) {
+        setState(() {
+          _savedPlaces = places;
+        });
+      }
     } catch (e) {
       debugPrint('Error loading saved places: $e');
     }
@@ -159,21 +161,30 @@ class MapScreenState extends State<MapScreen> {
   }
 
   Future<void> _initTts() async {
-    _flutterTts = FlutterTts();
-    await _flutterTts?.setLanguage("en-US");
-    await _flutterTts?.setSpeechRate(0.5);
-    await _flutterTts?.setVolume(1.0);
-    await _flutterTts?.setPitch(1.0);
+    try {
+      _flutterTts = FlutterTts();
+      await _flutterTts?.setLanguage("en-US");
+      await _flutterTts?.setSpeechRate(0.5);
+      await _flutterTts?.setVolume(1.0);
+      await _flutterTts?.setPitch(1.0);
+    } catch (e) {
+      debugPrint('TTS initialization error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Voice guidance unavailable: $e')),
+        );
+      }
+    }
   }
 
   Future<void> _createCarIcon() async {
     final pictureRecorder = ui.PictureRecorder();
     final canvas = Canvas(pictureRecorder);
     final paint = Paint()..color = Colors.blue;
-    
+
     const size = 60.0;
     canvas.drawCircle(const Offset(size / 2, size / 2), size / 2, paint);
-    
+
     final iconPainter = TextPainter(textDirection: TextDirection.ltr);
     iconPainter.text = const TextSpan(
       text: '🚗',
@@ -181,14 +192,19 @@ class MapScreenState extends State<MapScreen> {
     );
     iconPainter.layout();
     iconPainter.paint(canvas, const Offset(15, 15));
-    
+
     final picture = pictureRecorder.endRecording();
     final image = await picture.toImage(size.toInt(), size.toInt());
     final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
-    
-    setState(() {
-      _carIcon = BitmapDescriptor.fromBytes(bytes!.buffer.asUint8List());
-    });
+
+    if (mounted) {
+      setState(() {
+        _carIcon = BitmapDescriptor.fromBytes(bytes!.buffer.asUint8List());
+      });
+    }
+
+    // Clean up image resource
+    image.dispose();
   }
 
   void onMapCreated(GoogleMapController controller) {
@@ -212,14 +228,17 @@ class MapScreenState extends State<MapScreen> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('Location services are disabled. Please enable location in your browser.'),
+              content: Text(
+                  'Location services are disabled. Please enable location in your browser.'),
               duration: Duration(seconds: 5),
             ),
           );
         }
-        setState(() {
-          _isMapLoading = false;
-        });
+        if (mounted) {
+          setState(() {
+            _isMapLoading = false;
+          });
+        }
         return;
       }
 
@@ -230,14 +249,17 @@ class MapScreenState extends State<MapScreen> {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
-                content: Text('Location permission denied. Please allow location access.'),
+                content: Text(
+                    'Location permission denied. Please allow location access.'),
                 duration: Duration(seconds: 5),
               ),
             );
           }
-          setState(() {
-            _isMapLoading = false;
-          });
+          if (mounted) {
+            setState(() {
+              _isMapLoading = false;
+            });
+          }
           return;
         }
       }
@@ -246,14 +268,17 @@ class MapScreenState extends State<MapScreen> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('Location permission permanently denied. Please enable in browser settings.'),
+              content: Text(
+                  'Location permission permanently denied. Please enable in browser settings.'),
               duration: Duration(seconds: 5),
             ),
           );
         }
-        setState(() {
-          _isMapLoading = false;
-        });
+        if (mounted) {
+          setState(() {
+            _isMapLoading = false;
+          });
+        }
         return;
       }
 
@@ -262,28 +287,34 @@ class MapScreenState extends State<MapScreen> {
         desiredAccuracy: LocationAccuracy.high,
         timeLimit: const Duration(seconds: 10),
       );
-      
-      debugPrint('Position obtained: ${position.latitude}, ${position.longitude}');
+
+      debugPrint(
+          'Position obtained: ${position.latitude}, ${position.longitude}');
       LatLng currentLocation = LatLng(position.latitude, position.longitude);
-      
-      setState(() {
-        _currentPosition = currentLocation;
-        _markers.removeWhere((m) => m.markerId.value == 'currentLocation');
-        _markers.add(
-          Marker(
-            markerId: const MarkerId('currentLocation'),
-            position: currentLocation,
-            infoWindow: const InfoWindow(
-              title: 'Your Location',
+
+      if (mounted) {
+        setState(() {
+          _currentPosition = currentLocation;
+          _markers.removeWhere((m) => m.markerId.value == 'currentLocation');
+          _markers.add(
+            Marker(
+              markerId: const MarkerId('currentLocation'),
+              position: currentLocation,
+              infoWindow: const InfoWindow(
+                title: 'Your Location',
+              ),
+              icon: _carIcon ??
+                  BitmapDescriptor.defaultMarkerWithHue(
+                      BitmapDescriptor.hueBlue),
             ),
-            icon: _carIcon ?? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
-          ),
-        );
-        _isMapLoading = false;
-      });
-      
-      mapController?.animateCamera(CameraUpdate.newLatLngZoom(currentLocation, 15.0));
-      
+          );
+          _isMapLoading = false;
+        });
+      }
+
+      mapController
+          ?.animateCamera(CameraUpdate.newLatLngZoom(currentLocation, 15.0));
+
       if (showMessage && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -302,9 +333,11 @@ class MapScreenState extends State<MapScreen> {
           ),
         );
       }
-      setState(() {
-        _isMapLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isMapLoading = false;
+        });
+      }
     }
   }
 
@@ -352,7 +385,8 @@ class MapScreenState extends State<MapScreen> {
                 style: TextStyle(fontWeight: FontWeight.bold),
               ),
               SizedBox(height: 12),
-              Text('1. Click the location icon (🎯) in your browser address bar'),
+              Text(
+                  '1. Click the location icon (🎯) in your browser address bar'),
               SizedBox(height: 8),
               Text('2. Select "Allow" when prompted for location access'),
               SizedBox(height: 8),
@@ -384,11 +418,14 @@ class MapScreenState extends State<MapScreen> {
 
   Future<void> _saveCurrentPlace() async {
     if (_currentPosition == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enable location first')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please enable location first')),
+        );
+      }
       return;
     }
+
     _showSavePlaceDialog(_currentPosition!);
   }
 
@@ -418,9 +455,12 @@ class MapScreenState extends State<MapScreen> {
                 items: const [
                   DropdownMenuItem(value: 'Home', child: Text('🏠 Home')),
                   DropdownMenuItem(value: 'Work', child: Text('💼 Work')),
-                  DropdownMenuItem(value: 'Favorite', child: Text('❤️ Favorite')),
-                  DropdownMenuItem(value: 'Restaurant', child: Text('🍽️ Restaurant')),
-                  DropdownMenuItem(value: 'Shopping', child: Text('🛍️ Shopping')),
+                  DropdownMenuItem(
+                      value: 'Favorite', child: Text('❤️ Favorite')),
+                  DropdownMenuItem(
+                      value: 'Restaurant', child: Text('🍽️ Restaurant')),
+                  DropdownMenuItem(
+                      value: 'Shopping', child: Text('🛍️ Shopping')),
                   DropdownMenuItem(value: 'Other', child: Text('📍 Other')),
                 ],
                 onChanged: (value) {
@@ -447,7 +487,8 @@ class MapScreenState extends State<MapScreen> {
       try {
         final place = SavedPlace(
           name: nameController.text,
-          address: 'Lat: ${location.latitude.toStringAsFixed(6)}, Lng: ${location.longitude.toStringAsFixed(6)}',
+          address:
+              'Lat: ${location.latitude.toStringAsFixed(6)}, Lng: ${location.longitude.toStringAsFixed(6)}',
           latitude: location.latitude,
           longitude: location.longitude,
           category: selectedCategory,
@@ -472,14 +513,19 @@ class MapScreenState extends State<MapScreen> {
   void _toggleTraffic() {
     setState(() {
       _showTraffic = !_showTraffic;
-      _prefs?.setBool('showTraffic', _showTraffic);
     });
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(_showTraffic ? 'Traffic layer enabled' : 'Traffic layer disabled'),
-        duration: const Duration(seconds: 2),
-      ),
-    );
+    _prefs?.setBool('showTraffic', _showTraffic);
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(_showTraffic
+              ? 'Traffic layer enabled'
+              : 'Traffic layer disabled'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
   }
 
   void _navigateToSavedPlaces() {
@@ -528,7 +574,8 @@ class MapScreenState extends State<MapScreen> {
         final double lng = data['results'][0]['geometry']['location']['lng'];
         final LatLng location = LatLng(lat, lng);
 
-        mapController?.animateCamera(CameraUpdate.newLatLngZoom(location, 15.0));
+        mapController
+            ?.animateCamera(CameraUpdate.newLatLngZoom(location, 15.0));
         setState(() {
           _markers.add(
             Marker(
@@ -542,7 +589,8 @@ class MapScreenState extends State<MapScreen> {
           _suggestions = [];
         });
       } else {
-        debugPrint('Search Error: ${data['status']} - ${data['error_message'] ?? 'No error message'}');
+        debugPrint(
+            'Search Error: ${data['status']} - ${data['error_message'] ?? 'No error message'}');
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('Search failed: ${data['status']}')),
@@ -585,14 +633,17 @@ class MapScreenState extends State<MapScreen> {
       if (data['status'] == 'OK') {
         final List predictions = data['predictions'];
         setState(() {
-          _suggestions = predictions.map<String>((p) => p['description'] as String).toList();
+          _suggestions = predictions
+              .map<String>((p) => p['description'] as String)
+              .toList();
         });
       } else if (data['status'] == 'ZERO_RESULTS') {
         setState(() {
           _suggestions = [];
         });
       } else {
-        debugPrint('Autocomplete Error: ${data['status']} - ${data['error_message'] ?? 'No error message'}');
+        debugPrint(
+            'Autocomplete Error: ${data['status']} - ${data['error_message'] ?? 'No error message'}');
         setState(() {
           _suggestions = [];
         });
@@ -605,8 +656,6 @@ class MapScreenState extends State<MapScreen> {
     }
   }
 
-
-
   void getDirections() async {
     final String originAddress = originController.text;
     final String destinationAddress = destinationController.text;
@@ -614,7 +663,8 @@ class MapScreenState extends State<MapScreen> {
     if (originAddress.isEmpty || destinationAddress.isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Please enter both origin and destination')),
+          const SnackBar(
+              content: Text('Please enter both origin and destination')),
         );
       }
       return;
@@ -623,20 +673,24 @@ class MapScreenState extends State<MapScreen> {
     final String apiKey = dotenv.env['GOOGLE_MAPS_API_KEY']!;
     final String directionsUrl =
         'https://maps.googleapis.com/maps/api/directions/json?origin=${Uri.encodeComponent(originAddress)}&destination=${Uri.encodeComponent(destinationAddress)}&mode=$_travelMode&region=ng&key=$apiKey';
-    
-    final String url = 'https://api.allorigins.win/raw?url=${Uri.encodeComponent(directionsUrl)}';
+
+    final String url =
+        'https://api.allorigins.win/raw?url=${Uri.encodeComponent(directionsUrl)}';
 
     debugPrint('Directions URL: $directionsUrl');
     try {
-      final response = await http.get(Uri.parse(url));
+      final response = await http.get(Uri.parse(url)).timeout(
+            const Duration(seconds: 15),
+            onTimeout: () =>
+                throw TimeoutException('Directions request timed out'),
+          );
       debugPrint('Directions Response Status: ${response.statusCode}');
       debugPrint('Directions Response Body: ${response.body}');
       final data = json.decode(response.body);
 
       if (data['status'] == 'OK' && (data['routes'] as List).isNotEmpty) {
         final String encodedPolyline =
-    data['routes'][0]['overview_polyline']['points']
-        as String;
+            data['routes'][0]['overview_polyline']['points'] as String;
         final List<LatLng> polylineCoordinates =
             _decodePolyline(encodedPolyline);
 
@@ -652,35 +706,41 @@ class MapScreenState extends State<MapScreen> {
 
         final leg = data['routes'][0]['legs'][0];
         final steps = leg['steps'] as List;
-        
-        setState(() {
-          _polylines.clear();
-          _polylines.add(
-            Polyline(
-              polylineId: const PolylineId('route'),
-              points: polylineCoordinates,
-              color: Colors.blue,
-              width: 5,
-            ),
-          );
-          _distance = leg['distance']['text'];
-          _eta = leg['duration']['text'];
-          _instructions = steps
-              .map<String>((step) => _stripHtmlTags(step['html_instructions'] as String))
-              .toList();
-          
-          _navigationSteps = steps.map<Map<String, dynamic>>((step) => {
-            'instruction': _stripHtmlTags(step['html_instructions'] as String),
-            'distance': step['distance']['value'],
-            'duration': step['duration']['value'],
-            'end_location': step['end_location'],
-          }).toList();
-          
-          _destination = LatLng(
-            leg['end_location']['lat'],
-            leg['end_location']['lng'],
-          );
-        });
+
+        if (mounted) {
+          setState(() {
+            _polylines.clear();
+            _polylines.add(
+              Polyline(
+                polylineId: const PolylineId('route'),
+                points: polylineCoordinates,
+                color: Colors.blue,
+                width: 5,
+              ),
+            );
+            _distance = leg['distance']['text'];
+            _eta = leg['duration']['text'];
+            _instructions = steps
+                .map<String>((step) =>
+                    _stripHtmlTags(step['html_instructions'] as String))
+                .toList();
+
+            _navigationSteps = steps
+                .map<Map<String, dynamic>>((step) => {
+                      'instruction':
+                          _stripHtmlTags(step['html_instructions'] as String),
+                      'distance': step['distance']['value'],
+                      'duration': step['duration']['value'],
+                      'end_location': step['end_location'],
+                    })
+                .toList();
+
+            _destination = LatLng(
+              leg['end_location']['lat'],
+              leg['end_location']['lng'],
+            );
+          });
+        }
 
         mapController?.animateCamera(
           CameraUpdate.newLatLngBounds(
@@ -689,7 +749,8 @@ class MapScreenState extends State<MapScreen> {
           ),
         );
       } else {
-        final errorMsg = data['error_message'] ?? data['status'] ?? 'Unknown error';
+        final errorMsg =
+            data['error_message'] ?? data['status'] ?? 'Unknown error';
         debugPrint('Error getting directions: ${data['status']} - $errorMsg');
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -699,6 +760,16 @@ class MapScreenState extends State<MapScreen> {
             ),
           );
         }
+      }
+    } on TimeoutException catch (e) {
+      debugPrint('Directions Timeout: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Request timed out: ${e.toString()}'),
+            duration: const Duration(seconds: 5),
+          ),
+        );
       }
     } catch (e, stackTrace) {
       debugPrint('Directions Exception: $e');
@@ -721,89 +792,94 @@ class MapScreenState extends State<MapScreen> {
 
   double _calculateDistance(LatLng pos1, LatLng pos2) {
     const p = 0.017453292519943295;
-    final a = 0.5 - cos((pos2.latitude - pos1.latitude) * p) / 2 +
-        cos(pos1.latitude * p) * cos(pos2.latitude * p) *
-        (1 - cos((pos2.longitude - pos1.longitude) * p)) / 2;
-    return 12742 * asin(sqrt(a)) * 1000;
+    final a = 0.5 -
+        cos((pos2.latitude - pos1.latitude) * p) / 2 +
+        cos(pos1.latitude * p) *
+            cos(pos2.latitude * p) *
+            (1 - cos((pos2.longitude - pos1.longitude) * p)) /
+            2;
+    return 12742000 * asin(sqrt(a));
   }
 
-  void _startNavigation() async {
+  Future<void> _startNavigation() async {
     if (_navigationSteps.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please get directions first')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please get directions first')),
+        );
+      }
       return;
     }
 
-    setState(() {
-      _isNavigating = true;
-      _currentStepIndex = 0;
-    });
+    await _positionStream?.cancel();
 
-    await _flutterTts?.speak("Navigation started. ${_navigationSteps[0]['instruction']}");
+    if (mounted) {
+      setState(() {
+        _isNavigating = true;
+        _currentStepIndex = 0;
+      });
+    }
 
-    const locationSettings = LocationSettings(
+    await _flutterTts?.speak(
+      "Navigation started. ${_navigationSteps[0]['instruction']}",
+    );
+
+    final locationSettings = LocationSettings(
       accuracy: LocationAccuracy.high,
       distanceFilter: 10,
     );
 
-    _positionStream = Geolocator.getPositionStream(locationSettings: locationSettings)
-        .listen((Position position) {
-      _onLocationUpdate(position);
-    });
-  }
+    _positionStream = Geolocator.getPositionStream(
+      locationSettings: locationSettings,
+    ).listen((position) {
+      if (!mounted || _navigationSteps.isEmpty) return;
+      if (_currentStepIndex >= _navigationSteps.length) return;
 
-  void _stopNavigation() {
-    setState(() {
-      _isNavigating = false;
-    });
-    _positionStream?.cancel();
-    _flutterTts?.stop();
-    _flutterTts?.speak("Navigation stopped");
-  }
+      final currentPos = LatLng(position.latitude, position.longitude);
 
-  void _onLocationUpdate(Position position) {
-    final currentPos = LatLng(position.latitude, position.longitude);
-    
-    setState(() {
-      _currentPosition = currentPos;
-      _markers.removeWhere((m) => m.markerId.value == 'currentLocation');
-      _markers.add(
-        Marker(
-          markerId: const MarkerId('currentLocation'),
-          position: currentPos,
-          infoWindow: const InfoWindow(title: 'Your Location'),
-          icon: _carIcon ?? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
-          rotation: position.heading,
+      if (mounted) {
+        setState(() {
+          _currentPosition = currentPos;
+          _markers.removeWhere((m) => m.markerId.value == 'currentLocation');
+          _markers.add(
+            Marker(
+              markerId: const MarkerId('currentLocation'),
+              position: currentPos,
+              infoWindow: const InfoWindow(title: 'Your Location'),
+              icon: _carIcon ??
+                  BitmapDescriptor.defaultMarkerWithHue(
+                      BitmapDescriptor.hueBlue),
+              rotation: position.heading,
+            ),
+          );
+        });
+      }
+
+      mapController?.animateCamera(
+        CameraUpdate.newCameraPosition(
+          CameraPosition(
+            target: currentPos,
+            zoom: 18.0,
+            bearing: position.heading,
+            tilt: 45.0,
+          ),
         ),
       );
-    });
 
-    mapController?.animateCamera(
-      CameraUpdate.newCameraPosition(
-        CameraPosition(
-          target: currentPos,
-          zoom: 18.0,
-          bearing: position.heading,
-          tilt: 45.0,
-        ),
-      ),
-    );
-
-    if (_currentStepIndex < _navigationSteps.length) {
       final step = _navigationSteps[_currentStepIndex];
+      final endLocation = step['end_location'] as Map<String, dynamic>;
       final stepLocation = LatLng(
-        step['end_location']['lat'],
-        step['end_location']['lng'],
+        (endLocation['lat'] as num).toDouble(),
+        (endLocation['lng'] as num).toDouble(),
       );
-      
+
       final distanceToStep = _calculateDistance(currentPos, stepLocation);
-      
+
       if (distanceToStep < 50) {
         _currentStepIndex++;
         if (_currentStepIndex < _navigationSteps.length) {
           final nextStep = _navigationSteps[_currentStepIndex];
-          _flutterTts?.speak(nextStep['instruction']);
+          _flutterTts?.speak(nextStep['instruction'] as String);
         } else {
           _flutterTts?.speak("You have arrived at your destination");
           _stopNavigation();
@@ -812,6 +888,17 @@ class MapScreenState extends State<MapScreen> {
         final distance = distanceToStep.round();
         _flutterTts?.speak("In $distance meters, ${step['instruction']}");
       }
+    });
+  }
+
+  Future<void> _stopNavigation() async {
+    await _positionStream?.cancel();
+    _positionStream = null;
+
+    if (mounted) {
+      setState(() {
+        _isNavigating = false;
+      });
     }
   }
 
@@ -962,10 +1049,14 @@ class MapScreenState extends State<MapScreen> {
                   child: DropdownButton<String>(
                     value: _travelMode,
                     items: const [
-                      DropdownMenuItem(value: 'driving', child: Text('Driving')),
-                      DropdownMenuItem(value: 'walking', child: Text('Walking')),
-                      DropdownMenuItem(value: 'bicycling', child: Text('Bicycling')),
-                      DropdownMenuItem(value: 'transit', child: Text('Transit')),
+                      DropdownMenuItem(
+                          value: 'driving', child: Text('Driving')),
+                      DropdownMenuItem(
+                          value: 'walking', child: Text('Walking')),
+                      DropdownMenuItem(
+                          value: 'bicycling', child: Text('Bicycling')),
+                      DropdownMenuItem(
+                          value: 'transit', child: Text('Transit')),
                     ],
                     onChanged: (value) {
                       setState(() {
@@ -1110,7 +1201,8 @@ class MapScreenState extends State<MapScreen> {
                       const SizedBox(height: 8),
                       Text(
                         _navigationSteps[_currentStepIndex]['instruction'],
-                        style: const TextStyle(color: Colors.white, fontSize: 14),
+                        style:
+                            const TextStyle(color: Colors.white, fontSize: 14),
                       ),
                     ],
                   ),
@@ -1130,8 +1222,12 @@ class MapScreenState extends State<MapScreen> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text('Distance: $_distance', style: const TextStyle(fontWeight: FontWeight.bold)),
-                          Text('ETA: $_eta', style: const TextStyle(fontWeight: FontWeight.bold)),
+                          Text('Distance: $_distance',
+                              style:
+                                  const TextStyle(fontWeight: FontWeight.bold)),
+                          Text('ETA: $_eta',
+                              style:
+                                  const TextStyle(fontWeight: FontWeight.bold)),
                         ],
                       ),
                       Row(
@@ -1142,7 +1238,8 @@ class MapScreenState extends State<MapScreen> {
                               showDialog(
                                 context: context,
                                 builder: (context) => AlertDialog(
-                                  title: const Text('Turn-by-Turn Instructions'),
+                                  title:
+                                      const Text('Turn-by-Turn Instructions'),
                                   content: SizedBox(
                                     width: double.maxFinite,
                                     child: ListView.builder(
@@ -1159,7 +1256,8 @@ class MapScreenState extends State<MapScreen> {
                                   ),
                                   actions: [
                                     TextButton(
-                                      onPressed: () => Navigator.of(context).pop(),
+                                      onPressed: () =>
+                                          Navigator.of(context).pop(),
                                       child: const Text('Close'),
                                     ),
                                   ],
@@ -1170,11 +1268,16 @@ class MapScreenState extends State<MapScreen> {
                             label: const Text('Instructions'),
                           ),
                           ElevatedButton.icon(
-                            onPressed: _isNavigating ? _stopNavigation : _startNavigation,
-                            icon: Icon(_isNavigating ? Icons.stop : Icons.navigation),
-                            label: Text(_isNavigating ? 'Stop' : 'Start Navigation'),
+                            onPressed: _isNavigating
+                                ? _stopNavigation
+                                : _startNavigation,
+                            icon: Icon(
+                                _isNavigating ? Icons.stop : Icons.navigation),
+                            label: Text(
+                                _isNavigating ? 'Stop' : 'Start Navigation'),
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: _isNavigating ? Colors.red : Colors.green,
+                              backgroundColor:
+                                  _isNavigating ? Colors.red : Colors.green,
                               foregroundColor: Colors.white,
                             ),
                           ),
