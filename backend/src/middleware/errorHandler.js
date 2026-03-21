@@ -35,6 +35,13 @@ const errorHandler = (err, req, res, next) => {
     });
   }
 
+  if (err.message === 'CORS origin is not allowed') {
+    return res.status(403).json({
+      success: false,
+      message: err.message
+    });
+  }
+
   // Default error
   res.status(err.statusCode || 500).json({
     success: false,

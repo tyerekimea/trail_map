@@ -2,6 +2,12 @@
 
 A new Flutter project.
 
+## Project Guides
+
+- [Creation to Testing to Publishing](./APP_CREATION_TO_PUBLISHING.md)
+- [Backend Deployment (legacy)](./backend/DEPLOYMENT.md)
+- [Play Store Listing Draft](./PLAY_STORE_LISTING.md)
+
 ## Getting Started
 
 This project is a starting point for a Flutter application.
@@ -38,3 +44,18 @@ You can get the debug certificate fingerprint (SHA-1) using one of the following
     ```
 
     This will generate a report that includes the SHA-1 and SHA-256 fingerprints for your debug certificate.
+
+## Blank Map Troubleshooting (Android)
+
+If the app opens but the map area is blank:
+
+1. Ensure `GOOGLE_MAPS_API_KEY` is set in the project `.env` file.
+2. In Google Cloud Console, enable:
+   - `Maps SDK for Android`
+   - `Places API`
+   - `Directions API`
+   - `Geocoding API`
+3. Make sure billing is enabled for the project.
+4. If your key is restricted to Android apps, add:
+   - Package name: `com.example.trail_app`
+   - SHA-1 fingerprint from `./gradlew signingReport`

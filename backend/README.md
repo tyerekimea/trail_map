@@ -5,7 +5,7 @@
 ### Technology Stack
 - **Runtime**: Node.js 20+
 - **Framework**: Express.js
-- **Database**: MongoDB Atlas
+- **Database**: Google Firestore
 - **Authentication**: JWT + Firebase Auth
 - **Payment**: Paystack (Nigerian payment gateway)
 - **Analytics**: Google Analytics + Custom tracking
@@ -144,6 +144,11 @@
 - DELETE `/api/places/:id` - Delete saved place
 - POST `/api/places/sync` - Bulk sync places
 - GET `/api/places/public` - Get public places
+
+### Maps Proxy
+- GET `/api/maps/geocode?address=<text>&country=NG` - Geocode search text
+- GET `/api/maps/autocomplete?input=<text>&country=ng&types=geocode|establishment` - Place suggestions
+- GET `/api/maps/directions?origin=<text>&destination=<text>&mode=driving&region=ng` - Route directions
 
 ### Subscriptions
 - GET `/api/subscriptions/plans` - Get available plans
@@ -336,7 +341,9 @@
 ```
 NODE_ENV=production
 PORT=3000
-MONGODB_URI=mongodb+srv://...
+FIREBASE_PROJECT_ID=...
+FIREBASE_CLIENT_EMAIL=...
+FIREBASE_PRIVATE_KEY=...
 JWT_SECRET=...
 JWT_REFRESH_SECRET=...
 GOOGLE_MAPS_API_KEY=...

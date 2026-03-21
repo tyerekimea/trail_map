@@ -1,9 +1,52 @@
+import java.io.File
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
+    id("com.google.gms.google-services")
 }
+
+configurations.configureEach {
+    resolutionStrategy {
+        force("androidx.core:core:1.15.0")
+        force("androidx.core:core-ktx:1.15.0")
+    }
+}
+
+val localProperties = Properties()
+val localPropertiesFile = rootProject.file("local.properties")
+if (localPropertiesFile.exists()) {
+    localPropertiesFile.inputStream().use { localProperties.load(it) }
+}
+fun loadEnvVars(envFile: File): Map<String, String> {
+    if (!envFile.exists()) return emptyMap()
+    return envFile.readLines()
+        .asSequence()
+        .map { it.trim() }
+        .filter { it.isNotEmpty() && !it.startsWith("#") && it.contains("=") }
+        .mapNotNull { line ->
+            val separator = line.indexOf("=")
+            if (separator <= 0) return@mapNotNull null
+            val key = line.substring(0, separator).trim()
+            var value = line.substring(separator + 1).trim()
+            if ((value.startsWith("\"") && value.endsWith("\"")) ||
+                (value.startsWith("'") && value.endsWith("'"))
+            ) {
+                value = value.substring(1, value.length - 1)
+            }
+            key to value
+        }
+        .toMap()
+}
+val rootEnv = loadEnvVars(rootProject.file("../.env"))
+val googleMapsApiKey =
+    rootEnv["GOOGLE_MAPS_API_KEY"]
+        ?: localProperties.getProperty("google.maps.api.key")
+        ?: System.getenv("GOOGLE_MAPS_API_KEY")
+        ?: ""
 
 android {
     namespace = "com.example.trail_app"
@@ -28,6 +71,7 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        manifestPlaceholders["googleMapsApiKey"] = googleMapsApiKey
     }
 
     buildTypes {

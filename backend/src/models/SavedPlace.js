@@ -1,59 +1,27 @@
-const mongoose = require('mongoose');
+const { toDate } = require('../config/firestore');
 
-const savedPlaceSchema = new mongoose.Schema({
-  userId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true,
-    index: true
-  },
-  name: {
-    type: String,
-    required: true,
-    trim: true
-  },
-  address: {
-    type: String,
-    required: true
-  },
+const normalizeSavedPlace = (id, rawData = {}) => ({
+  _id: id,
+  id,
+  userId: rawData.userId,
+  clientId: rawData.clientId,
+  name: rawData.name,
+  address: rawData.address,
   location: {
-    type: {
-      type: String,
-      enum: ['Point'],
-      default: 'Point'
-    },
-    coordinates: {
-      type: [Number],
-      required: true
-    }
+    latitude: Number(rawData.location?.latitude),
+    longitude: Number(rawData.location?.longitude)
   },
-  category: {
-    type: String,
-    enum: ['Home', 'Work', 'Favorite', 'Restaurant', 'Shopping', 'Other'],
-    default: 'Other'
-  },
-  notes: {
-    type: String
-  },
-  photos: [{
-    type: String
-  }],
-  isPublic: {
-    type: Boolean,
-    default: false
-  },
-  syncedAt: {
-    type: Date,
-    default: Date.now
-  }
-}, {
-  timestamps: true
+  category: rawData.category || 'Other',
+  notes: rawData.notes || null,
+  photos: Array.isArray(rawData.photos) ? rawData.photos : [],
+  isPublic: Boolean(rawData.isPublic),
+  syncedAt: toDate(rawData.syncedAt),
+  deletedAt: toDate(rawData.deletedAt),
+  createdAt: toDate(rawData.createdAt),
+  updatedAt: toDate(rawData.updatedAt)
 });
 
-// Create geospatial index
-savedPlaceSchema.index({ location: '2dsphere' });
-
-// Compound index for user queries
-savedPlaceSchema.index({ userId: 1, category: 1 });
-
-module.exports = mongoose.model('SavedPlace', savedPlaceSchema);
+module.exports = {
+  collection: 'places',
+  normalizeSavedPlace
+};

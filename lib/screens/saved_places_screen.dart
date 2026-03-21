@@ -5,8 +5,13 @@ import '../services/database_helper.dart';
 
 class SavedPlacesScreen extends StatefulWidget {
   final Function(LatLng, String) onPlaceSelected;
+  final Future<void> Function()? onPlacesChanged;
 
-  const SavedPlacesScreen({super.key, required this.onPlaceSelected});
+  const SavedPlacesScreen({
+    super.key,
+    required this.onPlaceSelected,
+    this.onPlacesChanged,
+  });
 
   @override
   State<SavedPlacesScreen> createState() => _SavedPlacesScreenState();
@@ -74,11 +79,14 @@ class _SavedPlacesScreenState extends State<SavedPlacesScreen> {
     );
 
     if (confirm == true && place.id != null) {
-      await DatabaseHelper.instance.delete(place.id!);
-      _loadPlaces();
+      await DatabaseHelper.instance.softDelete(place.id!);
+      await _loadPlaces();
+      if (widget.onPlacesChanged != null) {
+        await widget.onPlacesChanged!.call();
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Place deleted')),
+          const SnackBar(content: Text('Place deleted locally')),
         );
       }
     }
@@ -213,7 +221,8 @@ class _SavedPlacesScreenState extends State<SavedPlacesScreen> {
                             ),
                             child: ListTile(
                               leading: CircleAvatar(
-                                backgroundColor: _getCategoryColor(place.category),
+                                backgroundColor:
+                                    _getCategoryColor(place.category),
                                 child: Icon(
                                   _getCategoryIcon(place.category),
                                   color: Colors.white,
@@ -221,7 +230,8 @@ class _SavedPlacesScreenState extends State<SavedPlacesScreen> {
                               ),
                               title: Text(
                                 place.name,
-                                style: const TextStyle(fontWeight: FontWeight.bold),
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.bold),
                               ),
                               subtitle: Text(
                                 place.address,

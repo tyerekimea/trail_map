@@ -1,4 +1,14 @@
-require('dotenv').config();
+const path = require('path');
+const dotenv = require('dotenv');
+
+const envFiles = [
+  path.resolve(__dirname, '../../.env'),
+  path.resolve(__dirname, '../.env'),
+];
+
+envFiles.forEach((envPath) => {
+  dotenv.config({ path: envPath, override: false });
+});
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -44,7 +54,7 @@ app.get('/api/test', (req, res) => {
       'Voice Guidance',
       'Premium Subscriptions'
     ],
-    note: 'This is a test server without database. For full functionality, set up MongoDB Atlas.'
+    note: 'This is a test server without database. For full functionality, set up Firestore credentials.'
   });
 });
 
@@ -115,7 +125,7 @@ app.post('/api/auth/register', (req, res) => {
       token: 'test-jwt-token-' + Date.now(),
       refreshToken: 'test-refresh-token-' + Date.now()
     },
-    note: 'This is a mock response. Set up MongoDB for real authentication.'
+    note: 'This is a mock response. Set up Firestore for real authentication.'
   });
 });
 
@@ -144,7 +154,7 @@ app.post('/api/auth/login', (req, res) => {
       token: 'test-jwt-token-' + Date.now(),
       refreshToken: 'test-refresh-token-' + Date.now()
     },
-    note: 'This is a mock response. Set up MongoDB for real authentication.'
+    note: 'This is a mock response. Set up Firestore for real authentication.'
   });
 });
 
@@ -182,7 +192,7 @@ app.get('/api/places', (req, res) => {
         createdAt: new Date().toISOString()
       }
     ],
-    note: 'Mock data. Set up MongoDB to save real places.'
+    note: 'Mock data. Set up Firestore to save real places.'
   });
 });
 
@@ -202,7 +212,7 @@ app.post('/api/places', (req, res) => {
       category,
       createdAt: new Date().toISOString()
     },
-    note: 'Mock response. Set up MongoDB to persist data.'
+    note: 'Mock response. Set up Firestore to persist data.'
   });
 });
 
@@ -259,7 +269,7 @@ app.get('/api/docs', (req, res) => {
         }
       }
     },
-    note: 'This is a TEST server without database. For full functionality, set up MongoDB Atlas and use npm run dev'
+    note: 'This is a TEST server without database. For full functionality, set up Firestore credentials and use npm run dev'
   });
 });
 
@@ -307,10 +317,10 @@ app.listen(PORT, () => {
   console.log(`   - http://localhost:${PORT}/api/auth/login (POST)`);
   console.log(`   - http://localhost:${PORT}/api/places (GET/POST)`);
   console.log('\n⚠️  Note: Running in TEST MODE without database');
-  console.log('   For full functionality, set up MongoDB Atlas:');
-  console.log('   1. Visit https://www.mongodb.com/cloud/atlas');
-  console.log('   2. Create free cluster');
-  console.log('   3. Update MONGODB_URI in .env');
+  console.log('   For full functionality, set up Firestore credentials:');
+  console.log('   1. Create a Firebase project');
+  console.log('   2. Generate a service account key');
+  console.log('   3. Update FIREBASE_* values in .env');
   console.log('   4. Run: npm run dev\n');
   console.log('📖 See QUICK_START.md for detailed setup\n');
   console.log('========================================\n');

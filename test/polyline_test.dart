@@ -18,14 +18,15 @@ void main() {
       state.originController.text = 'Lagos';
       state.destinationController.text = 'Abuja';
 
-      state.getDirections();
+      await state.getDirections(useCurrentLocation: false);
       await tester.pumpAndSettle();
     } else {
       fail('Could not find MapScreenState');
     }
   });
 
-  testWidgets('Empty origin and destination shows error', (WidgetTester tester) async {
+  testWidgets('Empty origin and destination shows error',
+      (WidgetTester tester) async {
     await tester.pumpWidget(const MaterialApp(home: MapScreen()));
     await tester.pumpAndSettle();
 
@@ -35,10 +36,13 @@ void main() {
       state.originController.text = '';
       state.destinationController.text = '';
 
-      state.getDirections();
+      await state.getDirections(useCurrentLocation: false);
       await tester.pump();
 
-      expect(find.text('Please enter both origin and destination'), findsOneWidget);
+      expect(
+        find.text('Please search for a destination first'),
+        findsOneWidget,
+      );
     } else {
       fail('Could not find MapScreenState');
     }
@@ -47,10 +51,10 @@ void main() {
   test('HTML tags are stripped from instructions', () {
     final testString = '<div>Turn <b>left</b> onto Main St</div>';
     final expected = 'Turn left onto Main St';
-    
+
     final RegExp exp = RegExp(r'<[^>]*>', multiLine: true, caseSensitive: true);
     final result = testString.replaceAll(exp, '').replaceAll('&nbsp;', ' ');
-    
+
     expect(result, expected);
   });
 }

@@ -1,8 +1,16 @@
 const express = require('express');
-const router = express.Router();
 const jwt = require('jsonwebtoken');
 const { body, validationResult } = require('express-validator');
-const User = require('../models/User');
+const { db } = require('../config/firestore');
+const {
+  DEFAULT_USAGE,
+  normalizeUserRecord,
+  sanitizeUser,
+  hashPassword,
+  comparePassword
+} = require('../utils/user');
+
+const router = express.Router();
 
 // Generate JWT token
 const generateToken = (userId) => {
@@ -18,94 +26,108 @@ const generateRefreshToken = (userId) => {
   });
 };
 
+const validate = (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({
+      success: false,
+      errors: errors.array()
+    });
+  }
+
+  next();
+};
+
+const findUserByEmail = async (email) => {
+  const snapshot = await db
+    .collection('users')
+    .where('email', '==', String(email).toLowerCase().trim())
+    .limit(1)
+    .get();
+
+  if (snapshot.empty) {
+    return null;
+  }
+
+  const doc = snapshot.docs[0];
+  return normalizeUserRecord(doc.id, doc.data());
+};
+
 /**
  * @swagger
  * /api/auth/register:
  *   post:
  *     summary: Register a new user
  *     tags: [Authentication]
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - email
- *               - password
- *               - name
- *             properties:
- *               email:
- *                 type: string
- *               password:
- *                 type: string
- *               name:
- *                 type: string
- *               phone:
- *                 type: string
- *     responses:
- *       201:
- *         description: User registered successfully
- *       400:
- *         description: Validation error
  */
-router.post('/register', [
-  body('email').isEmail().normalizeEmail(),
-  body('password').isLength({ min: 6 }),
-  body('name').trim().notEmpty()
-], async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
-        success: false,
-        errors: errors.array()
-      });
-    }
+router.post(
+  '/register',
+  [
+    body('email').isEmail().normalizeEmail(),
+    body('password').isLength({ min: 6 }),
+    body('name').trim().notEmpty(),
+    body('phone').optional().trim().isLength({ min: 6, max: 24 })
+  ],
+  validate,
+  async (req, res) => {
+    try {
+      const { email, password, name, phone } = req.body;
+      const normalizedEmail = String(email).toLowerCase().trim();
 
-    const { email, password, name, phone } = req.body;
-
-    // Check if user exists
-    const existingUser = await User.findOne({ email });
-    if (existingUser) {
-      return res.status(400).json({
-        success: false,
-        message: 'Email already registered'
-      });
-    }
-
-    // Create user
-    const user = new User({
-      email,
-      password,
-      name,
-      phone,
-      authProvider: 'email'
-    });
-
-    await user.save();
-
-    // Generate tokens
-    const token = generateToken(user._id);
-    const refreshToken = generateRefreshToken(user._id);
-
-    res.status(201).json({
-      success: true,
-      message: 'User registered successfully',
-      data: {
-        user,
-        token,
-        refreshToken
+      const existingUser = await findUserByEmail(normalizedEmail);
+      if (existingUser) {
+        return res.status(400).json({
+          success: false,
+          message: 'Email already registered'
+        });
       }
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Server error',
-      error: error.message
-    });
+
+      const now = new Date();
+      const hashedPassword = await hashPassword(password);
+      const newUserPayload = {
+        email: normalizedEmail,
+        name: String(name).trim(),
+        phone: phone ? String(phone).trim() : null,
+        password: hashedPassword,
+        authProvider: 'email',
+        authId: null,
+        isPremium: false,
+        premiumExpiry: null,
+        premiumPlan: null,
+        premiumUpdatedAt: null,
+        deviceInfo: {},
+        usage: DEFAULT_USAGE,
+        lastLogin: now,
+        isActive: true,
+        role: 'user',
+        createdAt: now,
+        updatedAt: now
+      };
+
+      const userRef = await db.collection('users').add(newUserPayload);
+      const savedUser = normalizeUserRecord(userRef.id, newUserPayload);
+
+      const token = generateToken(savedUser._id);
+      const refreshToken = generateRefreshToken(savedUser._id);
+
+      return res.status(201).json({
+        success: true,
+        message: 'User registered successfully',
+        data: {
+          user: sanitizeUser(savedUser),
+          token,
+          refreshToken
+        }
+      });
+    } catch (error) {
+      return res.status(500).json({
+        success: false,
+        message: 'Server error',
+        error: error.message
+      });
+    }
   }
-});
+);
 
 /**
  * @swagger
@@ -113,84 +135,64 @@ router.post('/register', [
  *   post:
  *     summary: Login user
  *     tags: [Authentication]
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - email
- *               - password
- *             properties:
- *               email:
- *                 type: string
- *               password:
- *                 type: string
- *     responses:
- *       200:
- *         description: Login successful
- *       401:
- *         description: Invalid credentials
  */
-router.post('/login', [
-  body('email').isEmail().normalizeEmail(),
-  body('password').notEmpty()
-], async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
-        success: false,
-        errors: errors.array()
-      });
-    }
+router.post(
+  '/login',
+  [body('email').isEmail().normalizeEmail(), body('password').notEmpty()],
+  validate,
+  async (req, res) => {
+    try {
+      const { email, password } = req.body;
+      const user = await findUserByEmail(email);
 
-    const { email, password } = req.body;
-
-    // Find user
-    const user = await User.findOne({ email, isActive: true });
-    if (!user) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid email or password'
-      });
-    }
-
-    // Check password
-    const isMatch = await user.comparePassword(password);
-    if (!isMatch) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid email or password'
-      });
-    }
-
-    // Update last login
-    user.lastLogin = new Date();
-    await user.save();
-
-    // Generate tokens
-    const token = generateToken(user._id);
-    const refreshToken = generateRefreshToken(user._id);
-
-    res.json({
-      success: true,
-      message: 'Login successful',
-      data: {
-        user,
-        token,
-        refreshToken
+      if (!user || !user.isActive) {
+        return res.status(401).json({
+          success: false,
+          message: 'Invalid email or password'
+        });
       }
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Server error',
-      error: error.message
-    });
+
+      const passwordMatch = await comparePassword(password, user.password);
+      if (!passwordMatch) {
+        return res.status(401).json({
+          success: false,
+          message: 'Invalid email or password'
+        });
+      }
+
+      const now = new Date();
+      await db.collection('users').doc(user._id).update({
+        lastLogin: now,
+        updatedAt: now
+      });
+
+      const updatedUser = {
+        ...user,
+        lastLogin: now,
+        updatedAt: now
+      };
+
+      const token = generateToken(user._id);
+      const refreshToken = generateRefreshToken(user._id);
+
+      return res.json({
+        success: true,
+        message: 'Login successful',
+        data: {
+          user: sanitizeUser(updatedUser),
+          token,
+          refreshToken
+        }
+      });
+    } catch (error) {
+      return res.status(500).json({
+        success: false,
+        message: 'Server error',
+        error: error.message
+      });
+    }
   }
-});
+);
 
 /**
  * @swagger
@@ -198,22 +200,6 @@ router.post('/login', [
  *   post:
  *     summary: Refresh access token
  *     tags: [Authentication]
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - refreshToken
- *             properties:
- *               refreshToken:
- *                 type: string
- *     responses:
- *       200:
- *         description: Token refreshed
- *       401:
- *         description: Invalid refresh token
  */
 router.post('/refresh', async (req, res) => {
   try {
@@ -226,18 +212,15 @@ router.post('/refresh', async (req, res) => {
       });
     }
 
-    // Verify refresh token
     const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
-    
-    // Generate new access token
     const token = generateToken(decoded.userId);
 
-    res.json({
+    return res.json({
       success: true,
       data: { token }
     });
   } catch (error) {
-    res.status(401).json({
+    return res.status(401).json({
       success: false,
       message: 'Invalid refresh token'
     });

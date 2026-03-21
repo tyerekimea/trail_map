@@ -1,5 +1,10 @@
 const jwt = require('jsonwebtoken');
-const User = require('../models/User');
+const { db } = require('../config/firestore');
+const {
+  normalizeUserRecord,
+  sanitizeUser,
+  isPremiumActive
+} = require('../utils/user');
 
 // Verify JWT token
 exports.protect = async (req, res, next) => {
@@ -19,8 +24,15 @@ exports.protect = async (req, res, next) => {
 
     try {
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      req.user = await User.findById(decoded.userId).select('-password');
-      
+      const userDoc = await db.collection('users').doc(decoded.userId).get();
+      if (!userDoc.exists) {
+        return res.status(401).json({
+          success: false,
+          message: 'User not found or inactive'
+        });
+      }
+
+      req.user = sanitizeUser(normalizeUserRecord(userDoc.id, userDoc.data()));
       if (!req.user || !req.user.isActive) {
         return res.status(401).json({
           success: false,
@@ -45,7 +57,7 @@ exports.protect = async (req, res, next) => {
 
 // Check if user is premium
 exports.requirePremium = (req, res, next) => {
-  if (!req.user.isPremiumActive()) {
+  if (!isPremiumActive(req.user)) {
     return res.status(403).json({
       success: false,
       message: 'Premium subscription required',

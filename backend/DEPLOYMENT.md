@@ -1,588 +1,218 @@
-# Deployment Guide - Google Maps Nigeria App Backend
+# Backend Deployment Guide (Firestore)
 
-## Quick Deploy Options
+This guide is for deploying the current backend in `trail_map/backend`.
 
-### Option 1: Railway (Recommended - Easiest)
+Current stack:
 
-**Why Railway:**
-- Free tier available
-- Automatic HTTPS
-- Easy MongoDB integration
-- GitHub auto-deploy
-- Nigerian payment methods accepted
+- Node.js + Express
+- Firestore via Firebase Admin SDK
+- JWT auth
+- Paystack subscriptions + webhook
 
-**Steps:**
+This backend loads environment variables from `backend/.env`.
 
-1. **Create Railway Account**
-```bash
-# Visit railway.app and sign up with GitHub
-```
+## 1. Prerequisites
 
-2. **Deploy from GitHub**
-```bash
-# Push your code to GitHub
-git init
-git add .
-git commit -m "Initial commit"
-git remote add origin https://github.com/yourusername/maps-nigeria-backend.git
-git push -u origin main
+- Node.js 18+ and npm 9+
+- Firebase project with Firestore enabled
+- Service account JSON from Firebase Console
+- Paystack test/live keys
+- A hosting provider (Render, Railway, Fly.io, or Cloud Run)
 
-# On Railway dashboard:
-# 1. Click "New Project"
-# 2. Select "Deploy from GitHub repo"
-# 3. Choose your repository
-# 4. Railway auto-detects Node.js
-```
+## 2. Required Environment Variables
 
-3. **Add MongoDB**
-```bash
-# In Railway project:
-# 1. Click "New" → "Database" → "Add MongoDB"
-# 2. Copy connection string
-# 3. Add to environment variables
-```
+Use `backend/.env.example` as a template.
 
-4. **Set Environment Variables**
-```bash
-# In Railway project settings → Variables:
+Minimum required for boot:
+
+```env
 NODE_ENV=production
-MONGODB_URI=mongodb://...  # From Railway MongoDB
-JWT_SECRET=your-secret-key
-PAYSTACK_SECRET_KEY=sk_live_...
-# ... add all other variables from .env.example
+PORT=3000
+ALLOWED_ORIGINS=https://your-app-domain.com
+
+FIREBASE_PROJECT_ID=your-firebase-project-id
+FIREBASE_CLIENT_EMAIL=firebase-adminsdk-xxx@your-project.iam.gserviceaccount.com
+FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+
+JWT_SECRET=generate-a-long-random-secret
+JWT_REFRESH_SECRET=generate-another-long-random-secret
+
+PAYSTACK_SECRET_KEY=sk_live_xxx
+PAYSTACK_PUBLIC_KEY=pk_live_xxx
+PAYSTACK_WEBHOOK_SECRET=your-paystack-webhook-secret
 ```
 
-5. **Deploy**
-```bash
-# Railway auto-deploys on git push
-# Your API will be live at: https://your-app.railway.app
+Alternative Firestore credential option:
+
+```env
+FIREBASE_SERVICE_ACCOUNT_JSON={"type":"service_account",...}
 ```
 
-**Cost:**
-- Free: $5 credit/month (enough for testing)
-- Hobby: $5/month (good for 10k users)
-- Pro: $20/month (good for 100k users)
+Notes:
 
----
+- Keep `FIREBASE_PRIVATE_KEY` with escaped `\\n` in env dashboards.
+- Never commit real secrets.
+- Rotate any key that was ever exposed in a client `.env`.
 
-### Option 2: Render
+## 3. Local Production-Like Validation
 
-**Why Render:**
-- Free tier with custom domain
-- Auto-scaling
-- Easy database backups
-
-**Steps:**
-
-1. **Create Render Account**
-```bash
-# Visit render.com and sign up
-```
-
-2. **Create Web Service**
-```bash
-# 1. Click "New +" → "Web Service"
-# 2. Connect GitHub repository
-# 3. Configure:
-#    - Name: maps-nigeria-api
-#    - Environment: Node
-#    - Build Command: npm install
-#    - Start Command: npm start
-#    - Plan: Free
-```
-
-3. **Add MongoDB Atlas**
-```bash
-# 1. Visit mongodb.com/cloud/atlas
-# 2. Create free cluster
-# 3. Get connection string
-# 4. Add to Render environment variables
-```
-
-4. **Set Environment Variables**
-```bash
-# In Render dashboard → Environment:
-# Add all variables from .env.example
-```
-
-**Cost:**
-- Free: 750 hours/month (enough for 1 service)
-- Starter: $7/month
-- Standard: $25/month
-
----
-
-### Option 3: Heroku
-
-**Steps:**
-
-1. **Install Heroku CLI**
-```bash
-npm install -g heroku
-heroku login
-```
-
-2. **Create Heroku App**
-```bash
-cd backend
-heroku create maps-nigeria-api
-```
-
-3. **Add MongoDB**
-```bash
-heroku addons:create mongolab:sandbox
-```
-
-4. **Set Environment Variables**
-```bash
-heroku config:set NODE_ENV=production
-heroku config:set JWT_SECRET=your-secret
-# ... set all other variables
-```
-
-5. **Deploy**
-```bash
-git push heroku main
-heroku open
-```
-
-**Cost:**
-- Eco: $5/month
-- Basic: $7/month
-- Standard: $25/month
-
----
-
-## Database Setup
-
-### MongoDB Atlas (Recommended)
-
-1. **Create Account**
-```bash
-# Visit mongodb.com/cloud/atlas
-# Sign up for free
-```
-
-2. **Create Cluster**
-```bash
-# 1. Click "Build a Database"
-# 2. Choose "Shared" (Free)
-# 3. Select AWS, Region: eu-west-1 (Ireland - closest to Nigeria)
-# 4. Cluster Name: maps-nigeria
-```
-
-3. **Create Database User**
-```bash
-# 1. Security → Database Access
-# 2. Add New Database User
-# 3. Username: mapsadmin
-# 4. Password: Generate secure password
-# 5. Database User Privileges: Read and write to any database
-```
-
-4. **Whitelist IP**
-```bash
-# 1. Security → Network Access
-# 2. Add IP Address
-# 3. Allow Access from Anywhere: 0.0.0.0/0
-# (For production, use specific IPs)
-```
-
-5. **Get Connection String**
-```bash
-# 1. Database → Connect
-# 2. Connect your application
-# 3. Copy connection string
-# mongodb+srv://mapsadmin:<password>@maps-nigeria.xxxxx.mongodb.net/
-```
-
----
-
-## Domain Setup
-
-### Custom Domain (Optional)
-
-1. **Buy Domain**
-```bash
-# Recommended Nigerian registrars:
-# - Whogohost.com
-# - Qservers.net
-# - Web4Africa.com
-
-# Suggested domains:
-# - mapsnigeria.com
-# - naijanav.com
-# - routeng.com
-```
-
-2. **Configure DNS**
-```bash
-# Add CNAME record:
-# Type: CNAME
-# Name: api
-# Value: your-app.railway.app (or render.com)
-# TTL: 3600
-
-# Your API will be accessible at:
-# https://api.mapsnigeria.com
-```
-
-3. **SSL Certificate**
-```bash
-# Railway/Render automatically provides SSL
-# No additional configuration needed
-```
-
----
-
-## CI/CD Pipeline
-
-### GitHub Actions
-
-Create `.github/workflows/deploy.yml`:
-
-```yaml
-name: Deploy to Production
-
-on:
-  push:
-    branches: [ main ]
-
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - name: Use Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: '18'
-      - run: cd backend && npm install
-      - run: cd backend && npm test
-
-  deploy:
-    needs: test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - name: Deploy to Railway
-        run: |
-          npm install -g @railway/cli
-          railway up
-        env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-```
-
----
-
-## Monitoring & Analytics
-
-### 1. Application Monitoring
-
-**Sentry (Error Tracking)**
-```bash
-npm install @sentry/node
-
-# In server.js:
-const Sentry = require("@sentry/node");
-Sentry.init({ dsn: process.env.SENTRY_DSN });
-```
-
-**New Relic (Performance)**
-```bash
-npm install newrelic
-
-# Create newrelic.js config
-# Add to start of server.js:
-require('newrelic');
-```
-
-### 2. Uptime Monitoring
-
-**UptimeRobot (Free)**
-```bash
-# Visit uptimerobot.com
-# Add monitor:
-# - Type: HTTPS
-# - URL: https://your-api.com/health
-# - Interval: 5 minutes
-# - Alert: Email/SMS when down
-```
-
-### 3. Analytics
-
-**Google Analytics**
-```bash
-# Track API usage:
-# - Endpoint hits
-# - User registrations
-# - Premium conversions
-# - Error rates
-```
-
----
-
-## Security Checklist
-
-### Before Going Live:
-
-- [ ] Change all default passwords
-- [ ] Rotate JWT secrets
-- [ ] Enable HTTPS only
-- [ ] Set up rate limiting
-- [ ] Configure CORS properly
-- [ ] Enable MongoDB authentication
-- [ ] Set up database backups
-- [ ] Configure firewall rules
-- [ ] Enable audit logging
-- [ ] Set up SSL certificates
-- [ ] Configure environment variables
-- [ ] Remove debug logs
-- [ ] Set up error monitoring
-- [ ] Configure API rate limits
-- [ ] Enable request validation
-- [ ] Set up DDoS protection
-- [ ] Configure session management
-- [ ] Enable security headers (Helmet.js)
-- [ ] Set up intrusion detection
-- [ ] Configure backup strategy
-
----
-
-## Backup Strategy
-
-### Database Backups
-
-**Automated Backups (MongoDB Atlas)**
-```bash
-# 1. Atlas Dashboard → Backup
-# 2. Enable Cloud Backup
-# 3. Schedule: Daily at 2 AM WAT
-# 4. Retention: 7 days
-# 5. Download backups weekly
-```
-
-**Manual Backup**
-```bash
-# Export database
-mongodump --uri="mongodb+srv://..." --out=./backup
-
-# Restore database
-mongorestore --uri="mongodb+srv://..." ./backup
-```
-
-### Code Backups
+From `trail_map/backend`:
 
 ```bash
-# GitHub (automatic)
-git push origin main
-
-# Additional backup to GitLab
-git remote add gitlab https://gitlab.com/...
-git push gitlab main
+npm install
+npm start
 ```
 
----
+Verify:
 
-## Scaling Strategy
-
-### Vertical Scaling (Increase Resources)
-
-**When to scale:**
-- CPU usage > 70%
-- Memory usage > 80%
-- Response time > 500ms
-- Error rate > 1%
-
-**Railway scaling:**
 ```bash
-# Upgrade plan:
-# Hobby → Pro: $20/month
-# Increases: 8GB RAM, 8 vCPU
+curl http://localhost:3000/health
 ```
 
-### Horizontal Scaling (Add Servers)
+Expected response includes:
 
-**Load Balancer Setup:**
+- `status: "ok"`
+- `environment`
+
+Quick endpoint smoke checks:
+
 ```bash
-# Use Railway's built-in load balancing
-# Or configure Nginx:
-
-upstream backend {
-    server api1.mapsnigeria.com;
-    server api2.mapsnigeria.com;
-    server api3.mapsnigeria.com;
-}
-
-server {
-    listen 80;
-    location / {
-        proxy_pass http://backend;
-    }
-}
+curl -X POST http://localhost:3000/api/auth/register \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Test User","email":"test@example.com","password":"StrongPass123"}'
 ```
 
-### Database Scaling
+## 4. Deploy Option A: Render
 
-**Read Replicas:**
+### 4.1 One-time repo preparation (already added)
+
+This repo now includes:
+
+- `render.yaml` (Render Blueprint config)
+- `backend/env.production.example` (production env template)
+- `npm run check:prod-env` (env sanity checker)
+
+### 4.2 Deploy with Blueprint (recommended)
+
+1. Push repository to GitHub.
+2. In Render: New -> Blueprint.
+3. Select this repository.
+4. Render reads `render.yaml` and creates `trail-map-backend`.
+5. In service environment variables, fill all `sync: false` values.
+6. Deploy.
+
+### 4.3 Validate env values before first traffic
+
+Use this locally with production-like values:
+
 ```bash
-# MongoDB Atlas:
-# 1. Cluster → Configuration
-# 2. Add Read Replica
-# 3. Region: eu-west-1
-# 4. Update connection string for read operations
+cd trail_map/backend
+set -a
+source env.production.example
+set +a
+npm run check:prod-env
 ```
 
-**Sharding (for 1M+ users):**
-```bash
-# Shard by userId
-# Each shard handles 250k users
+Render gives a public HTTPS URL like:
+
+- `https://your-backend.onrender.com`
+
+Health check URL:
+
+- `https://your-backend.onrender.com/health`
+
+## 5. Deploy Option B: Railway
+
+1. Push repository to GitHub.
+2. Create a new Railway project from repo.
+3. Set service root to `trail_map/backend`.
+4. Add env vars from Section 2.
+5. Deploy.
+
+Railway gives a public HTTPS URL like:
+
+- `https://your-backend.up.railway.app`
+
+## 6. CORS and Frontend URLs
+
+Set explicit origins in `ALLOWED_ORIGINS`:
+
+```env
+ALLOWED_ORIGINS=https://app.yourdomain.com,https://www.yourdomain.com
 ```
 
----
+For mobile-only API usage, keep at least your known web/admin origins here.
 
-## Cost Optimization
+## 7. Paystack Webhook Setup
 
-### Month 1-3 (Testing Phase)
-- Railway Free Tier: $0
-- MongoDB Atlas Free: $0
-- Domain: ₦5,000/year
-- **Total: ₦5,000 (~$6)**
+1. In Paystack dashboard, set webhook URL to:
 
-### Month 4-6 (Launch Phase)
-- Railway Hobby: $5/month
-- MongoDB Atlas M10: $10/month
-- Sentry: $0 (free tier)
-- **Total: $15/month (₦12,500)**
+- `https://your-backend-domain.com/api/subscriptions/webhook`
 
-### Month 7-12 (Growth Phase)
-- Railway Pro: $20/month
-- MongoDB Atlas M20: $40/month
-- Sentry Pro: $26/month
-- CDN (Cloudflare): $0 (free)
-- **Total: $86/month (₦72,000)**
+2. Set `PAYSTACK_WEBHOOK_SECRET` in host env vars.
+3. Ensure webhook endpoint is reachable publicly and returns 2xx for valid events.
 
-### Year 2 (Scale Phase)
-- Railway Pro: $20/month
-- MongoDB Atlas M30: $100/month
-- Sentry Business: $89/month
-- CDN: $20/month
-- **Total: $229/month (₦191,000)**
+## 8. App Configuration After Deploy
 
----
+Update Flutter app root `.env`:
 
-## Launch Checklist
+```env
+BACKEND_BASE_URL=https://your-backend-domain.com
+```
 
-### Pre-Launch (1 week before)
+Then fully rebuild the app (dotenv is loaded at app start).
 
-- [ ] Deploy to production
-- [ ] Test all API endpoints
-- [ ] Verify payment integration
-- [ ] Test mobile app connection
-- [ ] Set up monitoring
-- [ ] Configure backups
-- [ ] Test error handling
-- [ ] Load testing (1000 concurrent users)
-- [ ] Security audit
-- [ ] Documentation complete
+Also set this same deployed URL in backend env:
 
-### Launch Day
+```env
+API_URL=https://your-backend-domain.com
+```
 
-- [ ] Monitor error rates
-- [ ] Watch server metrics
-- [ ] Check payment processing
-- [ ] Monitor user registrations
-- [ ] Track API response times
-- [ ] Be ready for hotfixes
+## 9. Production Hardening Checklist
 
-### Post-Launch (1 week after)
+- `NODE_ENV=production`
+- Strong random JWT secrets
+- HTTPS only
+- Strict `ALLOWED_ORIGINS`
+- Rate limit enabled
+- Request validation enabled for non-map write routes
+- Monitoring on `/health`
+- Error tracking/log aggregation enabled
+- Backup and recovery plan for Firestore
 
-- [ ] Analyze user behavior
-- [ ] Fix reported bugs
-- [ ] Optimize slow endpoints
-- [ ] Adjust rate limits
-- [ ] Review error logs
-- [ ] Collect user feedback
+## 10. Operational Checks After Go-Live
 
----
+Run these after every deploy:
 
-## Support & Maintenance
+1. `GET /health` returns `status: ok`
+2. Register/login flow works
+3. Authenticated endpoint works (`/api/places` with bearer token)
+4. Paystack verify endpoint works
+5. Paystack webhook receives and processes test event
+6. No 5xx spikes in logs
 
-### Daily Tasks
-- Check error logs
-- Monitor uptime
-- Review user feedback
+## 11. Troubleshooting
 
-### Weekly Tasks
-- Database backup verification
-- Performance analysis
-- Security updates
-- User analytics review
+### Firestore init error at startup
 
-### Monthly Tasks
-- Cost optimization review
-- Feature usage analysis
-- A/B test results
-- Server capacity planning
+- Confirm `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY` are set.
+- Confirm private key has escaped `\\n` in env dashboard.
+- Confirm service account has permission for Firestore.
 
----
+### CORS origin blocked
 
-## Emergency Procedures
+- Add exact origin to `ALLOWED_ORIGINS`.
+- Redeploy/restart service after env changes.
 
-### Server Down
+### App times out on login/register
 
-1. Check Railway/Render status page
-2. Check MongoDB Atlas status
-3. Review error logs
-4. Restart service if needed
-5. Notify users via social media
+- Confirm backend public URL is reachable in browser/curl.
+- Confirm app `BACKEND_BASE_URL` points to deployed HTTPS URL.
+- Confirm no emulator-only URL (`10.0.2.2`) is used in production builds.
 
-### Database Issues
+## 12. Recommended Next Improvements
 
-1. Check MongoDB Atlas metrics
-2. Verify connection string
-3. Check disk space
-4. Restore from backup if needed
-
-### Payment Issues
-
-1. Check Paystack dashboard
-2. Verify webhook endpoint
-3. Check transaction logs
-4. Contact Paystack support
-
----
-
-## Getting Help
-
-### Resources
-
-- **Railway Docs**: docs.railway.app
-- **MongoDB Docs**: docs.mongodb.com
-- **Paystack Docs**: paystack.com/docs
-- **Node.js Docs**: nodejs.org/docs
-
-### Community
-
-- **Railway Discord**: railway.app/discord
-- **MongoDB Community**: community.mongodb.com
-- **Nigerian Dev Community**: devcenter.ng
-
-### Support
-
-- **Railway**: support@railway.app
-- **MongoDB**: support.mongodb.com
-- **Paystack**: support@paystack.com
-
----
-
-## Next Steps
-
-1. **Deploy backend** to Railway/Render
-2. **Set up MongoDB** Atlas
-3. **Configure Paystack** for payments
-4. **Update mobile app** with API URL
-5. **Test end-to-end** flow
-6. **Launch** to users!
-
-Your backend is now ready for production! 🚀
+- Add structured logging (JSON logs)
+- Add Sentry or similar error monitoring
+- Add CI/CD deploy gates (`npm test`, lint)
+- Add automated post-deploy smoke tests
