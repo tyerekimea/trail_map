@@ -1,14 +1,60 @@
+import 'package:flutter/services.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class AuthSession {
   AuthSession._();
 
   static final AuthSession instance = AuthSession._();
+  static const _secureStorage = FlutterSecureStorage();
 
   static const _accessTokenKey = 'auth_access_token';
   static const _refreshTokenKey = 'auth_refresh_token';
   static const _userEmailKey = 'auth_user_email';
   static const _userNameKey = 'auth_user_name';
+
+  Future<void> _writeToken(String key, String value) async {
+    try {
+      await _secureStorage.write(key: key, value: value);
+      return;
+    } on MissingPluginException {
+      // Fall back for tests and environments without secure storage plugin.
+    } catch (_) {
+      // Fall back to SharedPreferences if secure storage fails unexpectedly.
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(key, value);
+  }
+
+  Future<String?> _readToken(String key) async {
+    try {
+      final value = await _secureStorage.read(key: key);
+      if (value != null && value.isNotEmpty) {
+        return value;
+      }
+    } on MissingPluginException {
+      // Fall back for tests and environments without secure storage plugin.
+    } catch (_) {
+      // Fall back to SharedPreferences.
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(key);
+  }
+
+  Future<void> _deleteToken(String key) async {
+    try {
+      await _secureStorage.delete(key: key);
+    } on MissingPluginException {
+      // Fall back for tests and environments without secure storage plugin.
+    } catch (_) {
+      // Fall back to SharedPreferences.
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(key);
+  }
 
   Future<void> saveSession({
     required String accessToken,
@@ -17,12 +63,12 @@ class AuthSession {
     String? name,
   }) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_accessTokenKey, accessToken);
+    await _writeToken(_accessTokenKey, accessToken);
 
     if (refreshToken != null && refreshToken.isNotEmpty) {
-      await prefs.setString(_refreshTokenKey, refreshToken);
+      await _writeToken(_refreshTokenKey, refreshToken);
     } else {
-      await prefs.remove(_refreshTokenKey);
+      await _deleteToken(_refreshTokenKey);
     }
 
     if (email != null && email.isNotEmpty) {
@@ -44,13 +90,11 @@ class AuthSession {
   }
 
   Future<String?> getAccessToken() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(_accessTokenKey);
+    return _readToken(_accessTokenKey);
   }
 
   Future<String?> getRefreshToken() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(_refreshTokenKey);
+    return _readToken(_refreshTokenKey);
   }
 
   Future<String?> getUserEmail() async {
@@ -64,10 +108,13 @@ class AuthSession {
   }
 
   Future<void> clearSession() async {
+    await _deleteToken(_accessTokenKey);
+    await _deleteToken(_refreshTokenKey);
+
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_accessTokenKey);
-    await prefs.remove(_refreshTokenKey);
-    await prefs.remove(_userEmailKey);
-    await prefs.remove(_userNameKey);
+    await Future.wait([
+      prefs.remove(_userEmailKey),
+      prefs.remove(_userNameKey),
+    ]);
   }
 }

@@ -38,6 +38,9 @@ backend/.env
 .pub-cache/
 .pub/
 /build/
+backend/node_modules/
+backend/coverage/
+backend/.nyc_output/
 
 # Symbolication related
 app.*.symbols
@@ -49,4 +52,9 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+/android/google-services.json
+/android/app/google-services.json
+/android/key.properties
+*.jks
+*.keystore
 *.hprof

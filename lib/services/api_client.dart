@@ -30,6 +30,7 @@ class ApiClient {
   final http.Client _httpClient;
   final Duration _timeout;
   final TokenProvider tokenProvider;
+  Future<bool>? _refreshInFlight;
 
   String get _baseUrl {
     final baseUrl = dotenv.env['BACKEND_BASE_URL']?.trim() ?? '';
@@ -55,12 +56,12 @@ class ApiClient {
     Map<String, String>? queryParams,
     bool authenticated = false,
   }) async {
-    final headers = await _buildHeaders(authenticated: authenticated);
     return _send(
-      () => _httpClient.get(
+      (headers) => _httpClient.get(
         _buildUri(path, queryParams: queryParams),
         headers: headers,
       ),
+      authenticated: authenticated,
     );
   }
 
@@ -70,13 +71,13 @@ class ApiClient {
     Object? body,
     bool authenticated = false,
   }) async {
-    final headers = await _buildHeaders(authenticated: authenticated);
     return _send(
-      () => _httpClient.post(
+      (headers) => _httpClient.post(
         _buildUri(path, queryParams: queryParams),
         headers: headers,
         body: body == null ? null : json.encode(body),
       ),
+      authenticated: authenticated,
     );
   }
 
@@ -86,13 +87,13 @@ class ApiClient {
     Object? body,
     bool authenticated = false,
   }) async {
-    final headers = await _buildHeaders(authenticated: authenticated);
     return _send(
-      () => _httpClient.put(
+      (headers) => _httpClient.put(
         _buildUri(path, queryParams: queryParams),
         headers: headers,
         body: body == null ? null : json.encode(body),
       ),
+      authenticated: authenticated,
     );
   }
 
@@ -101,12 +102,12 @@ class ApiClient {
     Map<String, String>? queryParams,
     bool authenticated = false,
   }) async {
-    final headers = await _buildHeaders(authenticated: authenticated);
     return _send(
-      () => _httpClient.delete(
+      (headers) => _httpClient.delete(
         _buildUri(path, queryParams: queryParams),
         headers: headers,
       ),
+      authenticated: authenticated,
     );
   }
 
@@ -129,15 +130,18 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>> _send(
-    Future<http.Response> Function() request,
-  ) async {
-    late http.Response response;
-    try {
-      response = await request().timeout(_timeout);
-    } on TimeoutException {
-      throw ApiException('Request timed out');
-    } catch (_) {
-      throw ApiException('Unable to reach backend server');
+    Future<http.Response> Function(Map<String, String> headers) request, {
+    required bool authenticated,
+  }) async {
+    var headers = await _buildHeaders(authenticated: authenticated);
+    var response = await _performRequest(() => request(headers));
+
+    if (response.statusCode == 401 && authenticated) {
+      final refreshed = await _refreshAccessToken();
+      if (refreshed) {
+        headers = await _buildHeaders(authenticated: authenticated);
+        response = await _performRequest(() => request(headers));
+      }
     }
 
     final payload = _decodeBody(response.body);
@@ -149,10 +153,96 @@ class ApiClient {
     throw ApiException(message, statusCode: response.statusCode);
   }
 
+  Future<http.Response> _performRequest(
+    Future<http.Response> Function() request,
+  ) async {
+    try {
+      return await request().timeout(_timeout);
+    } on TimeoutException {
+      throw ApiException('Request timed out');
+    } catch (_) {
+      throw ApiException('Unable to reach backend server');
+    }
+  }
+
+  Future<bool> _refreshAccessToken() async {
+    if (_refreshInFlight != null) {
+      return _refreshInFlight!;
+    }
+
+    final future = _attemptTokenRefresh();
+    _refreshInFlight = future;
+    try {
+      return await future;
+    } finally {
+      _refreshInFlight = null;
+    }
+  }
+
+  Future<bool> _attemptTokenRefresh() async {
+    final refreshToken = await AuthSession.instance.getRefreshToken();
+    if (refreshToken == null || refreshToken.isEmpty) {
+      return false;
+    }
+
+    late http.Response refreshResponse;
+    try {
+      refreshResponse = await _httpClient
+          .post(
+            _buildUri('/api/auth/refresh'),
+            headers: const {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
+            },
+            body: json.encode({'refreshToken': refreshToken}),
+          )
+          .timeout(_timeout);
+    } catch (_) {
+      return false;
+    }
+
+    if (refreshResponse.statusCode < 200 || refreshResponse.statusCode >= 300) {
+      if (refreshResponse.statusCode == 401 ||
+          refreshResponse.statusCode == 403) {
+        await AuthSession.instance.clearSession();
+      }
+      return false;
+    }
+
+    final payload = _decodeBody(refreshResponse.body);
+    final data = payload['data'];
+    final dataMap = data is Map<String, dynamic> ? data : <String, dynamic>{};
+    final newAccessToken = (dataMap['token'] ?? payload['token'])?.toString();
+    if (newAccessToken == null || newAccessToken.isEmpty) {
+      return false;
+    }
+
+    final rotatedRefreshToken =
+        (dataMap['refreshToken'] ?? payload['refreshToken'])?.toString();
+    final email = await AuthSession.instance.getUserEmail();
+    final name = await AuthSession.instance.getUserName();
+    await AuthSession.instance.saveSession(
+      accessToken: newAccessToken,
+      refreshToken:
+          (rotatedRefreshToken != null && rotatedRefreshToken.isNotEmpty)
+              ? rotatedRefreshToken
+              : refreshToken,
+      email: email,
+      name: name,
+    );
+
+    return true;
+  }
+
   Map<String, dynamic> _decodeBody(String body) {
     if (body.trim().isEmpty) return {};
 
-    final decoded = json.decode(body);
+    dynamic decoded;
+    try {
+      decoded = json.decode(body);
+    } catch (_) {
+      return {'message': body};
+    }
     if (decoded is Map<String, dynamic>) return decoded;
     if (decoded is List) return {'data': decoded};
     return {'value': decoded};
