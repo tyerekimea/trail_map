@@ -1,7 +1,9 @@
 const crypto = require('crypto');
 const express = require('express');
+const { body, validationResult } = require('express-validator');
 const { db, mapSnapshot, toDate } = require('../config/firestore');
 const { protect } = require('../middleware/auth');
+const logger = require('../utils/logger');
 
 const router = express.Router();
 
@@ -46,8 +48,12 @@ const mapPlaceDoc = (doc) => {
   };
 };
 
-const getUserPlaces = async (userId) => {
-  const snapshot = await db.collection('places').where('userId', '==', userId).get();
+const getUserPlaces = async (userId, { since } = {}) => {
+  let query = db.collection('places').where('userId', '==', userId);
+  if (since) {
+    query = query.where('updatedAt', '>', since);
+  }
+  const snapshot = await query.get();
   return snapshot.docs.map(mapPlaceDoc);
 };
 
@@ -70,8 +76,18 @@ const findPlaceByIdForUser = async (placeId, userId) => {
 };
 
 const findPlaceByClientId = async (userId, clientId) => {
-  const userPlaces = await getUserPlaces(userId);
-  return userPlaces.find((place) => place.clientId === clientId) || null;
+  const snapshot = await db
+    .collection('places')
+    .where('userId', '==', userId)
+    .where('clientId', '==', clientId)
+    .limit(1)
+    .get();
+
+  if (snapshot.empty) {
+    return null;
+  }
+
+  return mapPlaceDoc(snapshot.docs[0]);
 };
 
 const applyIncomingPlaceFields = (place, payload) => {
@@ -136,15 +152,83 @@ const upsertPlace = async (place) => {
   return mapPlaceDoc(createdDoc);
 };
 
+/**
+ * Batch upsert places with transactional consistency
+ * Ensures all-or-nothing semantics for atomic operations
+ */
+const batchUpsertPlaces = async (places) => {
+  if (places.length === 0) {
+    return [];
+  }
+
+  if (places.length === 1) {
+    // Single place - no need for transaction
+    return [await upsertPlace(places[0])];
+  }
+
+  // Multiple places - use transaction for atomicity
+  const savedPlaces = [];
+
+  await db.runTransaction(async (transaction) => {
+    const now = new Date();
+
+    for (const place of places) {
+      const payload = {
+        userId: place.userId,
+        clientId: place.clientId,
+        name: place.name,
+        address: place.address,
+        location: place.location,
+        category: place.category || 'Other',
+        notes: place.notes || null,
+        photos: Array.isArray(place.photos) ? place.photos : [],
+        isPublic: Boolean(place.isPublic),
+        syncedAt: place.syncedAt || now,
+        deletedAt: place.deletedAt || null,
+        updatedAt: place.updatedAt || now,
+        createdAt: place.createdAt || now
+      };
+
+      if (place._id) {
+        // Update existing
+        const docRef = db.collection('places').doc(place._id);
+        transaction.set(docRef, payload, { merge: true });
+        savedPlaces.push({ ...place, ...payload });
+      } else {
+        // Create new - need to generate ID within transaction
+        const newDocRef = db.collection('places').doc();
+        transaction.set(newDocRef, payload);
+        savedPlaces.push({ _id: newDocRef.id, ...payload });
+      }
+    }
+  });
+
+  // Fetch the complete updated documents after transaction
+  const completePlaces = [];
+  for (const place of savedPlaces) {
+    const doc = await db.collection('places').doc(place._id).get();
+    if (doc.exists) {
+      completePlaces.push(mapPlaceDoc(doc));
+    }
+  }
+
+  return completePlaces;
+};
+
 const handlePushSync = async (req, res) => {
   try {
     const incomingPlaces = Array.isArray(req.body?.places) ? req.body.places : [];
     const now = new Date();
+    const userId = req.user._id;
 
     const records = [];
     const conflicts = [];
     const errors = [];
+    const placesToSave = [];
 
+    logger.debug('Sync push started', { userId, incomingPlaceCount: incomingPlaces.length });
+
+    // First pass: Validate and prepare places for batch save
     for (const payload of incomingPlaces) {
       if (!payload || typeof payload !== 'object') continue;
 
@@ -158,16 +242,16 @@ const handlePushSync = async (req, res) => {
       let place = null;
 
       if (payload.serverId) {
-        place = await findPlaceByIdForUser(payload.serverId, req.user._id);
+        place = await findPlaceByIdForUser(payload.serverId, userId);
       }
 
       if (!place) {
-        place = await findPlaceByClientId(req.user._id, clientId);
+        place = await findPlaceByClientId(userId, clientId);
       }
 
       if (!place) {
         place = {
-          userId: req.user._id,
+          userId,
           clientId,
           name: String(payload.name || '').trim() || 'Untitled Place',
           address: String(payload.address || '').trim() || 'Unknown Address',
@@ -191,6 +275,7 @@ const handlePushSync = async (req, res) => {
       try {
         applyIncomingPlaceFields(place, payload);
       } catch (error) {
+        logger.warn('Failed to apply place fields', { clientId, error: error.message });
         errors.push({ clientId, message: error.message });
         continue;
       }
@@ -203,21 +288,48 @@ const handlePushSync = async (req, res) => {
 
       place.syncedAt = now;
       place.updatedAt = clientUpdatedAt;
-      const savedPlace = await upsertPlace(place);
-      records.push(mapPlaceToSyncRecord(savedPlace));
+      
+      // Add to batch for transaction
+      placesToSave.push(place);
     }
+
+    // Second pass: Batch save all places atomically
+    let savedPlaces = [];
+    if (placesToSave.length > 0) {
+      try {
+        savedPlaces = await batchUpsertPlaces(placesToSave);
+        savedPlaces.forEach(place => {
+          records.push(mapPlaceToSyncRecord(place));
+        });
+      } catch (error) {
+        logger.error('Batch upsert failed', { userId, placesToSave: placesToSave.length, error });
+        return res.status(500).json({
+          success: false,
+          message: 'Failed to save places - transaction rolled back',
+          error: error.message
+        });
+      }
+    }
+
+    logger.info('Sync push completed', { 
+      userId, 
+      applied: savedPlaces.length, 
+      conflicts: conflicts.length, 
+      errors: errors.length 
+    });
 
     return res.json({
       success: true,
       data: {
         records,
-        applied: records.length - conflicts.length,
+        applied: savedPlaces.length,
         conflicts,
         errors,
         serverTime: now.toISOString()
       }
     });
   } catch (error) {
+    logger.error('Sync push failed', { userId: req.user._id, error });
     return res.status(500).json({
       success: false,
       message: 'Server error',
@@ -229,15 +341,13 @@ const handlePushSync = async (req, res) => {
 // Pull all server-side changes after a given timestamp
 router.get('/sync/pull', protect, async (req, res) => {
   try {
+    const userId = req.user._id;
     const since = parseDate(req.query.since);
-    const allPlaces = await getUserPlaces(req.user._id);
+    const places = await getUserPlaces(userId, { since });
 
-    const filteredPlaces = allPlaces
-      .filter((place) => {
-        if (!since) return true;
-        const updatedAt = place.updatedAt || place.createdAt;
-        return updatedAt && updatedAt > since;
-      })
+    logger.debug('Sync pull requested', { userId, sinceDate: since?.toISOString(), placesCount: places.length });
+
+    const filteredPlaces = places
       .sort((a, b) => {
         const aDate = a.updatedAt || a.createdAt || new Date(0);
         const bDate = b.updatedAt || b.createdAt || new Date(0);
@@ -252,6 +362,7 @@ router.get('/sync/pull', protect, async (req, res) => {
       }
     });
   } catch (error) {
+    logger.error('Sync pull failed', { userId: req.user._id, error });
     res.status(500).json({
       success: false,
       message: 'Server error',
@@ -261,15 +372,60 @@ router.get('/sync/pull', protect, async (req, res) => {
 });
 
 // Push local batched changes from the client
-router.post('/sync/push', protect, handlePushSync);
+router.post(
+  '/sync/push',
+  protect,
+  [
+    body('places').isArray().withMessage('places must be an array'),
+    body('places.*.clientId').notEmpty().trim(),
+    body('places.*.name').optional().trim().isLength({ min: 1, max: 255 }),
+    body('places.*.address').optional().trim().isLength({ min: 1, max: 500 }),
+    body('places.*.latitude').optional().isFloat({ min: -90, max: 90 }),
+    body('places.*.longitude').optional().isFloat({ min: -180, max: 180 }),
+    body('places.*.category').optional().isIn(['Restaurant', 'Hotel', 'Airport', 'Hospital', 'Other']),
+    body('places.*.isDeleted').optional().isBoolean()
+  ],
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      logger.warn('Sync push validation failed', { userId: req.user._id, errors: errors.array() });
+      return res.status(400).json({
+        success: false,
+        errors: errors.array()
+      });
+    }
+    return handlePushSync(req, res);
+  }
+);
 
 // Backward compatibility with old /sync endpoint
-router.post('/sync', protect, handlePushSync);
+router.post(
+  '/sync',
+  protect,
+  [
+    body('places').isArray().withMessage('places must be an array'),
+    body('places.*.clientId').notEmpty().trim(),
+    body('places.*.name').optional().trim().isLength({ min: 1, max: 255 }),
+    body('places.*.address').optional().trim().isLength({ min: 1, max: 500 })
+  ],
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      logger.warn('Sync validation failed', { userId: req.user._id, errors: errors.array() });
+      return res.status(400).json({
+        success: false,
+        errors: errors.array()
+      });
+    }
+    return handlePushSync(req, res);
+  }
+);
 
 // Get all active (non-deleted) places for user
 router.get('/', protect, async (req, res) => {
   try {
-    const places = (await getUserPlaces(req.user._id))
+    const userId = req.user._id;
+    const places = (await getUserPlaces(userId))
       .filter((place) => !place.deletedAt)
       .sort((a, b) => {
         const aDate = a.createdAt || new Date(0);
@@ -277,12 +433,15 @@ router.get('/', protect, async (req, res) => {
         return bDate.getTime() - aDate.getTime();
       });
 
+    logger.debug('User places retrieved', { userId, count: places.length });
+
     res.json({
       success: true,
       count: places.length,
       data: places.map(mapPlaceToSyncRecord)
     });
   } catch (error) {
+    logger.error('Failed to retrieve places', { userId: req.user._id, error });
     res.status(500).json({
       success: false,
       message: 'Server error',
@@ -292,82 +451,130 @@ router.get('/', protect, async (req, res) => {
 });
 
 // Create saved place
-router.post('/', protect, async (req, res) => {
-  try {
-    const {
-      clientId: rawClientId,
-      name,
-      address,
-      latitude,
-      longitude,
-      category,
-      notes
-    } = req.body;
-
-    const now = new Date();
-    const clientId = String(rawClientId || '').trim() || `server-${crypto.randomUUID()}`;
-    const place = {
-      userId: req.user._id,
-      clientId,
-      name,
-      address,
-      location: {
-        latitude: toNumber(latitude),
-        longitude: toNumber(longitude)
-      },
-      category,
-      notes,
-      syncedAt: now,
-      createdAt: now,
-      updatedAt: now,
-      deletedAt: null
-    };
-
-    const savedPlace = await upsertPlace(place);
-
-    res.status(201).json({
-      success: true,
-      data: mapPlaceToSyncRecord(savedPlace)
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Server error',
-      error: error.message
-    });
-  }
-});
-
-// Update saved place
-router.put('/:id', protect, async (req, res) => {
-  try {
-    const place = await findPlaceByIdForUser(req.params.id, req.user._id);
-
-    if (!place) {
-      return res.status(404).json({
+router.post(
+  '/',
+  protect,
+  [
+    body('name').trim().notEmpty().isLength({ min: 1, max: 255 }).withMessage('Name is required (max 255 characters)'),
+    body('address').trim().optional().isLength({ max: 500 }),
+    body('latitude').notEmpty().isFloat({ min: -90, max: 90 }).withMessage('Valid latitude is required (-90 to 90)'),
+    body('longitude').notEmpty().isFloat({ min: -180, max: 180 }).withMessage('Valid longitude is required (-180 to 180)'),
+    body('category').optional().isIn(['Restaurant', 'Hotel', 'Airport', 'Hospital', 'Other']),
+    body('notes').optional().trim().isLength({ max: 1000 })
+  ],
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      logger.warn('Create place validation failed', { userId: req.user._id, errors: errors.array() });
+      return res.status(400).json({
         success: false,
-        message: 'Place not found'
+        errors: errors.array()
       });
     }
 
-    applyIncomingPlaceFields(place, req.body);
-    place.deletedAt = null;
-    place.syncedAt = new Date();
-    place.updatedAt = new Date();
-    const savedPlace = await upsertPlace(place);
+    try {
+      const {
+        clientId: rawClientId,
+        name,
+        address,
+        latitude,
+        longitude,
+        category,
+        notes
+      } = req.body;
 
-    res.json({
-      success: true,
-      data: mapPlaceToSyncRecord(savedPlace)
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Server error',
-      error: error.message
-    });
+      const now = new Date();
+      const clientId = String(rawClientId || '').trim() || `server-${crypto.randomUUID()}`;
+      const userId = req.user._id;
+      const place = {
+        userId,
+        clientId,
+        name,
+        address,
+        location: {
+          latitude: toNumber(latitude),
+          longitude: toNumber(longitude)
+        },
+        category,
+        notes,
+        syncedAt: now,
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null
+      };
+
+      const savedPlace = await upsertPlace(place);
+      logger.info('Place created', { userId, placeId: savedPlace._id });
+
+      res.status(201).json({
+        success: true,
+        data: mapPlaceToSyncRecord(savedPlace)
+      });
+    } catch (error) {
+      logger.error('Failed to create place', { userId: req.user._id, error });
+      res.status(500).json({
+        success: false,
+        message: 'Server error',
+        error: error.message
+      });
+    }
   }
-});
+);
+
+// Update saved place
+router.put(
+  '/:id',
+  protect,
+  [
+    body('name').optional().trim().isLength({ min: 1, max: 255 }),
+    body('address').optional().trim().isLength({ max: 500 }),
+    body('latitude').optional().isFloat({ min: -90, max: 90 }),
+    body('longitude').optional().isFloat({ min: -180, max: 180 }),
+    body('category').optional().isIn(['Restaurant', 'Hotel', 'Airport', 'Hospital', 'Other']),
+    body('notes').optional().trim().isLength({ max: 1000 })
+  ],
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      logger.warn('Update place validation failed', { userId: req.user._id, placeId: req.params.id, errors: errors.array() });
+      return res.status(400).json({
+        success: false,
+        errors: errors.array()
+      });
+    }
+
+    try {
+      const place = await findPlaceByIdForUser(req.params.id, req.user._id);
+
+      if (!place) {
+        return res.status(404).json({
+          success: false,
+          message: 'Place not found'
+        });
+      }
+
+      applyIncomingPlaceFields(place, req.body);
+      place.deletedAt = null;
+      place.syncedAt = new Date();
+      place.updatedAt = new Date();
+      const savedPlace = await upsertPlace(place);
+
+      logger.info('Place updated', { userId: req.user._id, placeId: place._id });
+
+      res.json({
+        success: true,
+        data: mapPlaceToSyncRecord(savedPlace)
+      });
+    } catch (error) {
+      logger.error('Failed to update place', { userId: req.user._id, placeId: req.params.id, error });
+      res.status(500).json({
+        success: false,
+        message: 'Server error',
+        error: error.message
+      });
+    }
+  }
+);
 
 // Soft delete saved place
 router.delete('/:id', protect, async (req, res) => {
@@ -383,15 +590,16 @@ router.delete('/:id', protect, async (req, res) => {
 
     place.deletedAt = new Date();
     place.syncedAt = new Date();
-    place.updatedAt = new Date();
     const savedPlace = await upsertPlace(place);
+
+    logger.info('Place deleted', { userId: req.user._id, placeId: place._id });
 
     res.json({
       success: true,
-      message: 'Place deleted successfully',
       data: mapPlaceToSyncRecord(savedPlace)
     });
   } catch (error) {
+    logger.error('Failed to delete place', { userId: req.user._id, placeId: req.params.id, error });
     res.status(500).json({
       success: false,
       message: 'Server error',

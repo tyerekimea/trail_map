@@ -101,18 +101,30 @@ router.get(
       const page = Number(req.query.page) || 1;
       const limit = Number(req.query.limit) || 20;
       const skip = (page - 1) * limit;
-
-      const snapshot = await db.collection('businesses').get();
-      let businesses = snapshot.docs.map(mapBusiness).filter((business) => business.isActive !== false);
+      let queryRef = db.collection('businesses').where('isActive', '==', true);
 
       if (req.query.category) {
-        businesses = businesses.filter((business) => business.category === req.query.category);
+        queryRef = queryRef.where('category', '==', req.query.category);
       }
 
       if (req.query.verified !== undefined) {
         const verified = req.query.verified === 'true';
-        businesses = businesses.filter((business) => Boolean(business.isVerified) === verified);
+        queryRef = queryRef.where('isVerified', '==', verified);
       }
+
+      if (req.query.city) {
+        // Case-insensitive city matching is handled in-memory below.
+      }
+
+      if (req.query.state) {
+        // Case-insensitive state matching is handled in-memory below.
+      }
+
+      const fetchLimit =
+        parseInt(process.env.BUSINESS_SEARCH_FETCH_LIMIT, 10) ||
+        Math.min(Math.max(page * limit * 2, 100), 500);
+      const snapshot = await queryRef.limit(fetchLimit).get();
+      let businesses = snapshot.docs.map(mapBusiness);
 
       if (req.query.city) {
         const city = req.query.city.toLowerCase();

@@ -1,18 +1,14 @@
 const {
   normalizeUserRecord,
   sanitizeUser,
-  isPremiumActive,
   hashPassword,
-  comparePassword,
-  getPremiumActivationFields
+  comparePassword
 } = require('../utils/user');
 
 module.exports = {
   collection: 'users',
   normalizeUserRecord,
   sanitizeUser,
-  isPremiumActive,
   hashPassword,
-  comparePassword,
-  getPremiumActivationFields
+  comparePassword
 };

@@ -28,10 +28,10 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
+    return const MaterialApp(
       title: 'Google Maps Nigeria App',
       debugShowCheckedModeBanner: false,
-      home: const AuthGate(),
+      home: AuthGate(),
     );
   }
 }
@@ -171,7 +171,6 @@ class MapScreenState extends State<MapScreen> {
   List<Map<String, dynamic>> _navigationSteps = [];
   int _currentStepIndex = 0;
   LatLng? _currentPosition;
-  LatLng? _destination;
 
   // Traffic and offline maps
   bool _showTraffic = false;
@@ -397,7 +396,7 @@ class MapScreenState extends State<MapScreen> {
 
     if (mounted) {
       setState(() {
-        _carIcon = BitmapDescriptor.fromBytes(bytes!.buffer.asUint8List());
+        _carIcon = BitmapDescriptor.bytes(bytes!.buffer.asUint8List());
       });
     }
 
@@ -481,9 +480,12 @@ class MapScreenState extends State<MapScreen> {
       }
 
       debugPrint('Getting current position...');
+      const locationSettings = LocationSettings(
+        accuracy: LocationAccuracy.high,
+        timeLimit: Duration(seconds: 15),
+      );
       Position position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-        timeLimit: const Duration(seconds: 15),
+        locationSettings: locationSettings,
       );
 
       debugPrint(
@@ -665,7 +667,7 @@ class MapScreenState extends State<MapScreen> {
               ),
               const SizedBox(height: 16),
               DropdownButtonFormField<String>(
-                value: selectedCategory,
+                initialValue: selectedCategory,
                 decoration: const InputDecoration(labelText: 'Category'),
                 items: const [
                   DropdownMenuItem(value: 'Home', child: Text('🏠 Home')),
@@ -996,10 +998,6 @@ class MapScreenState extends State<MapScreen> {
                     })
                 .toList();
 
-            _destination = LatLng(
-              (leg['end_location']['lat'] as num).toDouble(),
-              (leg['end_location']['lng'] as num).toDouble(),
-            );
           });
         }
 
@@ -1108,7 +1106,7 @@ class MapScreenState extends State<MapScreen> {
       "Navigation started. ${_navigationSteps[0]['instruction']}",
     );
 
-    final locationSettings = LocationSettings(
+    const locationSettings = LocationSettings(
       accuracy: LocationAccuracy.high,
       distanceFilter: 10,
     );
@@ -1485,7 +1483,7 @@ class MapScreenState extends State<MapScreen> {
                             ),
                           const SizedBox(height: 10),
                           DropdownButtonFormField<String>(
-                            value: _travelMode,
+                            initialValue: _travelMode,
                             decoration: const InputDecoration(
                               labelText: 'Travel mode',
                               border: OutlineInputBorder(),
@@ -1573,11 +1571,11 @@ class MapScreenState extends State<MapScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
+                      const Row(
                         children: [
-                          const Icon(Icons.navigation, color: Colors.white),
-                          const SizedBox(width: 8),
-                          const Text(
+                          Icon(Icons.navigation, color: Colors.white),
+                          SizedBox(width: 8),
+                          Text(
                             'Navigating',
                             style: TextStyle(
                               color: Colors.white,

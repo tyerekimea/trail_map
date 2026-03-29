@@ -7,19 +7,6 @@ const DEFAULT_USAGE = {
   totalDistance: 0
 };
 
-const isPremiumActive = (user) => {
-  if (!user || !user.premiumExpiry) {
-    return false;
-  }
-
-  const expiry = toDate(user.premiumExpiry);
-  if (!expiry) {
-    return false;
-  }
-
-  return expiry > new Date();
-};
-
 const sanitizeUser = (user) => {
   if (!user) {
     return null;
@@ -40,10 +27,6 @@ const normalizeUserRecord = (id, rawData = {}) => {
     phone: rawData.phone || null,
     authProvider: rawData.authProvider || 'email',
     authId: rawData.authId || null,
-    isPremium: Boolean(rawData.isPremium),
-    premiumExpiry: toDate(rawData.premiumExpiry),
-    premiumPlan: rawData.premiumPlan || null,
-    premiumUpdatedAt: toDate(rawData.premiumUpdatedAt),
     deviceInfo: rawData.deviceInfo || {},
     usage: {
       ...DEFAULT_USAGE,
@@ -70,22 +53,10 @@ const comparePassword = async (candidatePassword, hash) => {
   return bcrypt.compare(candidatePassword, hash);
 };
 
-const getPremiumActivationFields = ({ expiryDate, planId = null }) => {
-  return {
-    isPremium: true,
-    premiumExpiry: expiryDate,
-    premiumPlan: planId,
-    premiumUpdatedAt: new Date(),
-    updatedAt: new Date()
-  };
-};
-
 module.exports = {
   DEFAULT_USAGE,
   sanitizeUser,
   normalizeUserRecord,
-  isPremiumActive,
   hashPassword,
-  comparePassword,
-  getPremiumActivationFields
+  comparePassword
 };

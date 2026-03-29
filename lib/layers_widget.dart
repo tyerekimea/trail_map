@@ -16,61 +16,35 @@ class _LayersWidgetState extends State<LayersWidget> {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        ListTile(
-          title: const Text('Normal'),
-          leading: Radio<MapType>(
-            value: MapType.normal,
-            groupValue: _currentMapType,
-            onChanged: (MapType? value) {
-              setState(() {
-                _currentMapType = value!;
-                widget.onMapTypeChanged(_currentMapType);
-              });
-            },
+    return RadioGroup<MapType>(
+      groupValue: _currentMapType,
+      onChanged: (value) {
+        if (value == null) return;
+        setState(() {
+          _currentMapType = value;
+          widget.onMapTypeChanged(_currentMapType);
+        });
+      },
+      child: const Column(
+        children: [
+          ListTile(
+            title: Text('Normal'),
+            leading: Radio<MapType>(value: MapType.normal),
           ),
-        ),
-        ListTile(
-          title: const Text('Satellite'),
-          leading: Radio<MapType>(
-            value: MapType.satellite,
-            groupValue: _currentMapType,
-            onChanged: (MapType? value) {
-              setState(() {
-                _currentMapType = value!;
-                widget.onMapTypeChanged(_currentMapType);
-              });
-            },
+          ListTile(
+            title: Text('Satellite'),
+            leading: Radio<MapType>(value: MapType.satellite),
           ),
-        ),
-        ListTile(
-          title: const Text('Terrain'),
-          leading: Radio<MapType>(
-            value: MapType.terrain,
-            groupValue: _currentMapType,
-            onChanged: (MapType? value) {
-              setState(() {
-                _currentMapType = value!;
-                widget.onMapTypeChanged(_currentMapType);
-              });
-            },
+          ListTile(
+            title: Text('Terrain'),
+            leading: Radio<MapType>(value: MapType.terrain),
           ),
-        ),
-        ListTile(
-          title: const Text('Hybrid'),
-          leading: Radio<MapType>(
-            value: MapType.hybrid,
-            groupValue: _currentMapType,
-            onChanged: (MapType? value) {
-              setState(() {
-                _currentMapType = value!;
-                widget.onMapTypeChanged(_currentMapType);
-              });
-            },
+          ListTile(
+            title: Text('Hybrid'),
+            leading: Radio<MapType>(value: MapType.hybrid),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

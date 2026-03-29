@@ -1,10 +1,6 @@
 const jwt = require('jsonwebtoken');
 const { db } = require('../config/firestore');
-const {
-  normalizeUserRecord,
-  sanitizeUser,
-  isPremiumActive
-} = require('../utils/user');
+const { normalizeUserRecord, sanitizeUser } = require('../utils/user');
 
 // Verify JWT token
 exports.protect = async (req, res, next) => {
@@ -53,18 +49,6 @@ exports.protect = async (req, res, next) => {
       message: 'Server error'
     });
   }
-};
-
-// Check if user is premium
-exports.requirePremium = (req, res, next) => {
-  if (!isPremiumActive(req.user)) {
-    return res.status(403).json({
-      success: false,
-      message: 'Premium subscription required',
-      upgradeUrl: '/api/subscriptions/plans'
-    });
-  }
-  next();
 };
 
 // Check if user is admin

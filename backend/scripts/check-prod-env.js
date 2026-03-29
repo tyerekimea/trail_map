@@ -1,48 +1,13 @@
-const REQUIRED_KEYS = [
-  'NODE_ENV',
-  'ALLOWED_ORIGINS',
-  'API_URL',
-  'FIREBASE_PROJECT_ID',
-  'FIREBASE_CLIENT_EMAIL',
-  'FIREBASE_PRIVATE_KEY',
-  'JWT_SECRET',
-  'JWT_REFRESH_SECRET',
-  'GOOGLE_MAPS_API_KEY',
-  'PAYSTACK_SECRET_KEY',
-  'PAYSTACK_PUBLIC_KEY',
-  'PAYSTACK_WEBHOOK_SECRET'
-];
+const path = require('path');
+const dotenv = require('dotenv');
+const { evaluateEnv } = require('../src/config/env');
 
-const PLACEHOLDER_HINTS = [
-  'your-',
-  'replace-with',
-  'sk_test_',
-  'pk_test_',
-  'example.com',
-  'change-this'
-];
+// Load local env files for validation while keeping runtime-provided env vars first.
+// backend/.env must take precedence over root .env when both define the same key.
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
+dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
-const missing = [];
-const weak = [];
-
-REQUIRED_KEYS.forEach((key) => {
-  const raw = process.env[key];
-  const value = typeof raw === 'string' ? raw.trim() : '';
-
-  if (!value) {
-    missing.push(key);
-    return;
-  }
-
-  const normalized = value.toLowerCase();
-  if (PLACEHOLDER_HINTS.some((hint) => normalized.includes(hint))) {
-    weak.push(key);
-  }
-});
-
-if ((process.env.NODE_ENV || '').trim() !== 'production') {
-  weak.push('NODE_ENV');
-}
+const { missing, weak } = evaluateEnv(process.env);
 
 if (missing.length > 0 || weak.length > 0) {
   if (missing.length > 0) {

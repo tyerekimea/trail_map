@@ -51,52 +51,9 @@ app.get('/api/test', (req, res) => {
       'Offline Maps',
       'Saved Places',
       'Traffic Updates',
-      'Voice Guidance',
-      'Premium Subscriptions'
+      'Voice Guidance'
     ],
     note: 'This is a test server without database. For full functionality, set up Firestore credentials.'
-  });
-});
-
-// Mock subscription plans
-app.get('/api/subscriptions/plans', (req, res) => {
-  res.json({
-    success: true,
-    data: [
-      {
-        id: 'monthly',
-        name: 'Monthly Premium',
-        price: 2000,
-        currency: 'NGN',
-        duration: '1 month',
-        features: [
-          'Unlimited saved places',
-          'Ad-free experience',
-          'Offline maps for all cities',
-          'Advanced route optimization',
-          'Multi-stop routing',
-          'Traffic predictions',
-          'Speed camera alerts',
-          'Priority support'
-        ]
-      },
-      {
-        id: 'yearly',
-        name: 'Yearly Premium',
-        price: 20000,
-        currency: 'NGN',
-        duration: '1 year',
-        discount: '17%',
-        savings: 4000,
-        features: [
-          'All monthly features',
-          'Save ₦4,000 per year',
-          'Priority support',
-          'Early access to new features',
-          'Exclusive beta features'
-        ]
-      }
-    ]
   });
 });
 
@@ -119,7 +76,6 @@ app.post('/api/auth/register', (req, res) => {
         id: 'test-user-' + Date.now(),
         email,
         name,
-        isPremium: false,
         createdAt: new Date().toISOString()
       },
       token: 'test-jwt-token-' + Date.now(),
@@ -148,7 +104,6 @@ app.post('/api/auth/login', (req, res) => {
         id: 'test-user-123',
         email,
         name: 'Test User',
-        isPremium: false,
         lastLogin: new Date().toISOString()
       },
       token: 'test-jwt-token-' + Date.now(),
@@ -234,11 +189,6 @@ app.get('/api/docs', (req, res) => {
         path: '/api/test',
         description: 'Test API connection'
       },
-      subscriptionPlans: {
-        method: 'GET',
-        path: '/api/subscriptions/plans',
-        description: 'Get available subscription plans'
-      },
       register: {
         method: 'POST',
         path: '/api/auth/register',
@@ -282,7 +232,6 @@ app.use((req, res) => {
       'GET /health',
       'GET /api/test',
       'GET /api/docs',
-      'GET /api/subscriptions/plans',
       'POST /api/auth/register',
       'POST /api/auth/login',
       'GET /api/places',
@@ -312,7 +261,6 @@ app.listen(PORT, () => {
   console.log(`   - http://localhost:${PORT}/health`);
   console.log(`   - http://localhost:${PORT}/api/test`);
   console.log(`   - http://localhost:${PORT}/api/docs`);
-  console.log(`   - http://localhost:${PORT}/api/subscriptions/plans`);
   console.log(`   - http://localhost:${PORT}/api/auth/register (POST)`);
   console.log(`   - http://localhost:${PORT}/api/auth/login (POST)`);
   console.log(`   - http://localhost:${PORT}/api/places (GET/POST)`);

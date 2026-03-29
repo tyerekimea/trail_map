@@ -1,3 +1,5 @@
+# Legacy Render blueprint kept for reference only.
+# Active production deployment target is Google Cloud Run.
 services:
   - type: web
     name: trail-map-backend
@@ -15,6 +17,10 @@ services:
         sync: false
       - key: API_URL
         sync: false
+      - key: TRUST_PROXY
+        value: "1"
+      - key: ENABLE_SWAGGER_DOCS
+        value: "false"
       - key: FIREBASE_PROJECT_ID
         sync: false
       - key: FIREBASE_CLIENT_EMAIL
@@ -31,15 +37,15 @@ services:
         value: 7d
       - key: GOOGLE_MAPS_API_KEY
         sync: false
-      - key: PAYSTACK_SECRET_KEY
-        sync: false
-      - key: PAYSTACK_PUBLIC_KEY
-        sync: false
-      - key: PAYSTACK_WEBHOOK_SECRET
-        sync: false
-      - key: PAYSTACK_CALLBACK_URL
-        sync: false
       - key: RATE_LIMIT_WINDOW_MS
         value: "900000"
       - key: RATE_LIMIT_MAX_REQUESTS
         value: "100"
+      - key: AUTH_RATE_LIMIT_WINDOW_MS
+        value: "900000"
+      - key: AUTH_RATE_LIMIT_MAX_REQUESTS
+        value: "10"
+      - key: ERROR_TRACKING_ENABLED
+        value: "false"
+      - key: ERROR_WEBHOOK_URL
+        sync: false

@@ -10,8 +10,7 @@ const options = {
       description: 'Backend API for Google Maps Nigeria App'
     },
     servers: [
-      { url: 'http://localhost:3000', description: 'Development' },
-      { url: 'https://api.mapsnigeria.com', description: 'Production' }
+      { url: process.env.API_URL || 'http://localhost:3000', description: process.env.NODE_ENV || 'development' }
     ]
   },
   apis: ['./src/routes/*.js']

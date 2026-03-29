@@ -50,6 +50,11 @@ const mapEvent = (doc) => {
   };
 };
 
+const countDocuments = async (query) => {
+  const snapshot = await query.count().get();
+  return Number(snapshot.data().count || 0);
+};
+
 router.post(
   '/event',
   protect,
@@ -158,11 +163,16 @@ router.get(
   async (req, res) => {
     try {
       const { start, end } = parseWindow(req.query);
-      const snapshot = await db.collection('analyticsEvents').get();
+      const snapshot = await db
+        .collection('analyticsEvents')
+        .where('occurredAt', '>=', start)
+        .where('occurredAt', '<=', end)
+        .limit(parseInt(process.env.ANALYTICS_SUMMARY_SCAN_LIMIT, 10) || 2000)
+        .get();
 
       const filtered = snapshot.docs
         .map(mapEvent)
-        .filter((event) => event.occurredAt && event.occurredAt >= start && event.occurredAt <= end);
+        .filter((event) => event.occurredAt);
 
       const eventTypeCounts = new Map();
       const activeUsers = new Set();
@@ -218,26 +228,24 @@ router.get(
       const page = Number(req.query.page) || 1;
       const limit = Number(req.query.limit) || 20;
       const skip = (page - 1) * limit;
-
-      const snapshot = await db.collection('analyticsEvents').get();
-      let events = snapshot.docs.map(mapEvent);
+      let baseQuery = db.collection('analyticsEvents');
 
       if (req.query.eventType) {
-        events = events.filter((event) => event.eventType === req.query.eventType);
+        baseQuery = baseQuery.where('eventType', '==', req.query.eventType);
       }
 
       if (req.query.userId) {
-        events = events.filter((event) => event.userId === req.query.userId);
+        baseQuery = baseQuery.where('userId', '==', req.query.userId);
       }
 
-      events.sort((a, b) => {
-        const aDate = a.occurredAt || new Date(0);
-        const bDate = b.occurredAt || new Date(0);
-        return bDate.getTime() - aDate.getTime();
-      });
+      const total = await countDocuments(baseQuery);
+      const snapshot = await baseQuery
+        .orderBy('occurredAt', 'desc')
+        .offset(skip)
+        .limit(limit)
+        .get();
 
-      const total = events.length;
-      const paginated = events.slice(skip, skip + limit);
+      const paginated = snapshot.docs.map(mapEvent);
 
       res.json({
         success: true,
