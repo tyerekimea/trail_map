@@ -110,6 +110,38 @@ Primary fields:
 - `createdAt` (timestamp)
 - `updatedAt` (timestamp)
 
+## auditLogs
+
+Collection: `auditLogs`
+
+Primary fields:
+
+- `action` (string)
+- `actorId` (string|null)
+- `targetId` (string|null)
+- `status` (string: `success` | `failed` | `denied`)
+- `requestId` (string|null)
+- `ip` (string|null)
+- `userAgent` (string|null)
+- `metadata` (map)
+- `createdAt` (timestamp)
+
+## rateLimitMetrics
+
+Collection: `rateLimitMetrics` (optional, enabled with `RATE_LIMIT_METRICS_PERSIST=true`)
+
+Primary fields:
+
+- `scope` (string: `api` | `auth`)
+- `windowMs` (number)
+- `maxPerWindow` (number)
+- `totalAttempts` (number)
+- `totalLimitExceeded` (number)
+- `activeIPs` (number)
+- `limitExceededIPs` (number)
+- `topOffenders` (array)
+- `recordedAt` (timestamp)
+
 ## Notes
 
 - Subscriptions were intentionally removed and are not part of the current backend.

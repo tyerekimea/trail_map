@@ -3,6 +3,7 @@ const { body, param, query, validationResult } = require('express-validator');
 const { db } = require('../config/firestore');
 const { protect, requireAdmin } = require('../middleware/auth');
 const { normalizeUserRecord, sanitizeUser } = require('../utils/user');
+const { writeAuditLog } = require('../utils/audit');
 
 const router = express.Router();
 
@@ -84,6 +85,7 @@ router.get(
   [
     query('page').optional().isInt({ min: 1 }),
     query('limit').optional().isInt({ min: 1, max: 100 }),
+    query('cursor').optional().trim().isLength({ min: 1, max: 128 }),
     query('role').optional().isIn(['user', 'admin']),
     query('isActive').optional().isBoolean(),
     query('q').optional().trim().isLength({ min: 2, max: 100 })
@@ -93,6 +95,7 @@ router.get(
     try {
       const page = Number(req.query.page) || 1;
       const limit = Number(req.query.limit) || 20;
+      const cursor = req.query.cursor ? String(req.query.cursor).trim() : null;
       const skip = (page - 1) * limit;
       let baseQuery = db.collection('users');
 
@@ -106,11 +109,26 @@ router.get(
 
       let total = 0;
       let paginatedUsers = [];
+      let nextCursor = null;
 
       if (req.query.q) {
         const regex = new RegExp(req.query.q, 'i');
         const searchScanLimit =
           parseInt(process.env.ADMIN_USER_SEARCH_SCAN_LIMIT, 10) || 500;
+        if (skip >= searchScanLimit) {
+          return res.json({
+            success: true,
+            data: {
+              page,
+              limit,
+              total: 0,
+              pages: 0,
+              users: [],
+              cursor: null,
+              nextCursor: null
+            }
+          });
+        }
         const snapshot = await baseQuery
           .orderBy('createdAt', 'desc')
           .limit(searchScanLimit)
@@ -124,13 +142,29 @@ router.get(
         paginatedUsers = matchedUsers.slice(skip, skip + limit).map(sanitizeUser);
       } else {
         total = await countDocuments(baseQuery);
-        const snapshot = await baseQuery
+        let queryRef = baseQuery
           .orderBy('createdAt', 'desc')
-          .offset(skip)
-          .limit(limit)
-          .get();
+          .limit(limit + 1);
 
-        paginatedUsers = snapshot.docs
+        if (cursor) {
+          const cursorDoc = await db.collection('users').doc(cursor).get();
+          if (!cursorDoc.exists) {
+            return res.status(400).json({
+              success: false,
+              message: 'Invalid pagination cursor'
+            });
+          }
+          queryRef = queryRef.startAfter(cursorDoc);
+        }
+
+        const snapshot = await queryRef
+          .get();
+        const docs = snapshot.docs;
+        const hasMore = docs.length > limit;
+        const pageDocs = hasMore ? docs.slice(0, limit) : docs;
+        nextCursor = hasMore ? pageDocs[pageDocs.length - 1].id : null;
+
+        paginatedUsers = pageDocs
           .map((doc) => normalizeUserRecord(doc.id, doc.data()))
           .map(sanitizeUser);
       }
@@ -142,7 +176,9 @@ router.get(
           limit,
           total,
           pages: Math.ceil(total / limit),
-          users: paginatedUsers
+          users: paginatedUsers,
+          cursor,
+          nextCursor
         }
       });
     } catch (error) {
@@ -192,6 +228,18 @@ router.patch(
       await userRef.set(updates, { merge: true });
       const updatedDoc = await userRef.get();
       const updatedUser = sanitizeUser(normalizeUserRecord(updatedDoc.id, updatedDoc.data()));
+      void writeAuditLog({
+        action: 'admin.update_user',
+        actorId: req.user?._id,
+        targetId: req.params.id,
+        requestId: req.requestId,
+        ip: req.ip,
+        userAgent: req.get('user-agent'),
+        metadata: {
+          changedRole: role !== undefined,
+          changedActive: isActive !== undefined
+        }
+      });
 
       res.json({
         success: true,
@@ -199,6 +247,16 @@ router.patch(
         data: updatedUser
       });
     } catch (error) {
+      void writeAuditLog({
+        action: 'admin.update_user',
+        actorId: req.user?._id,
+        targetId: req.params.id,
+        status: 'failed',
+        requestId: req.requestId,
+        ip: req.ip,
+        userAgent: req.get('user-agent'),
+        metadata: { error: error.message }
+      });
       res.status(500).json({
         success: false,
         message: 'Unable to update user',

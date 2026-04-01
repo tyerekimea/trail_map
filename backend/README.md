@@ -29,6 +29,7 @@ This is the production backend for the Trail Map app.
 - Firestore schema: [SCHEMA.md](./SCHEMA.md)
 - Monitoring and alerting: [ops/MONITORING_AND_ALERTING.md](./ops/MONITORING_AND_ALERTING.md)
 - Backup and recovery: [ops/BACKUP_AND_RECOVERY.md](./ops/BACKUP_AND_RECOVERY.md)
+- Secret rotation: [ops/SECRET_ROTATION.md](./ops/SECRET_ROTATION.md)
 
 ## Local Setup
 
@@ -56,6 +57,8 @@ curl http://localhost:3000/health
 ```bash
 npm run lint
 npm test
+npm run test:production-gate
+npm run check:predeploy
 ```
 
 Optional integration suites (real Firestore-dependent):
@@ -69,3 +72,4 @@ npm run test:integration
 - Use Secret Manager for secrets (JWT, Firestore private key, Maps key).
 - Keep `ALLOWED_ORIGINS` explicit, no wildcard.
 - Use `/health` and `/health/deep` for uptime checks.
+- Configure either `SENTRY_DSN` or `ERROR_WEBHOOK_URL` for production error tracking.

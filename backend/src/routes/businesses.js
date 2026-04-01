@@ -66,6 +66,11 @@ const mapBusiness = (doc) => {
   };
 };
 
+const countDocuments = async (queryRef) => {
+  const snapshot = await queryRef.count().get();
+  return Number(snapshot.data().count || 0);
+};
+
 const haversineDistanceKm = (lat1, lon1, lat2, lon2) => {
   const toRad = (deg) => (deg * Math.PI) / 180;
   const R = 6371;
@@ -93,13 +98,15 @@ router.get(
     query('longitude').optional().isFloat({ min: -180, max: 180 }),
     query('radiusKm').optional().isFloat({ min: 0.1, max: 200 }),
     query('page').optional().isInt({ min: 1 }),
-    query('limit').optional().isInt({ min: 1, max: 100 })
+    query('limit').optional().isInt({ min: 1, max: 100 }),
+    query('cursor').optional().trim().isLength({ min: 1, max: 128 })
   ],
   validate,
   async (req, res) => {
     try {
       const page = Number(req.query.page) || 1;
       const limit = Number(req.query.limit) || 20;
+      const cursor = req.query.cursor ? String(req.query.cursor).trim() : null;
       const skip = (page - 1) * limit;
       let queryRef = db.collection('businesses').where('isActive', '==', true);
 
@@ -120,9 +127,59 @@ router.get(
         // Case-insensitive state matching is handled in-memory below.
       }
 
+      const requiresInMemoryFiltering =
+        Boolean(req.query.q || req.query.city || req.query.state) ||
+        (req.query.latitude !== undefined && req.query.longitude !== undefined);
+
+      if (!requiresInMemoryFiltering) {
+        const total = await countDocuments(queryRef);
+        let pagedQuery = queryRef
+          .orderBy('createdAt', 'desc')
+          .limit(limit + 1);
+
+        if (cursor) {
+          const cursorDoc = await db.collection('businesses').doc(cursor).get();
+          if (!cursorDoc.exists) {
+            return res.status(400).json({
+              success: false,
+              message: 'Invalid pagination cursor'
+            });
+          }
+          pagedQuery = pagedQuery.startAfter(cursorDoc);
+        }
+
+        const pagedSnapshot = await pagedQuery.get();
+        const docs = pagedSnapshot.docs;
+        const hasMore = docs.length > limit;
+        const pageDocs = hasMore ? docs.slice(0, limit) : docs;
+        const nextCursor = hasMore ? pageDocs[pageDocs.length - 1].id : null;
+
+        return res.json({
+          success: true,
+          data: {
+            page,
+            limit,
+            total,
+            pages: Math.ceil(total / limit),
+            businesses: pageDocs.map(mapBusiness),
+            cursor,
+            nextCursor
+          }
+        });
+      }
+
       const fetchLimit =
-        parseInt(process.env.BUSINESS_SEARCH_FETCH_LIMIT, 10) ||
-        Math.min(Math.max(page * limit * 2, 100), 500);
+        Math.min(
+          parseInt(process.env.BUSINESS_SEARCH_FETCH_LIMIT, 10) ||
+            Math.max(page * limit * 2, 100),
+          parseInt(process.env.BUSINESS_SEARCH_FETCH_LIMIT_MAX, 10) || 250
+        );
+      if (skip >= fetchLimit) {
+        return res.status(400).json({
+          success: false,
+          message: 'Requested page is outside allowed scan window. Narrow your filters.'
+        });
+      }
       const snapshot = await queryRef.limit(fetchLimit).get();
       let businesses = snapshot.docs.map(mapBusiness);
 
@@ -203,7 +260,9 @@ router.get(
           limit,
           total,
           pages: Math.ceil(total / limit),
-          businesses: paginated
+          businesses: paginated,
+          cursor: null,
+          nextCursor: null
         }
       });
     } catch (error) {

@@ -4,6 +4,43 @@ const { query, validationResult } = require('express-validator');
 
 const router = express.Router();
 const GOOGLE_MAPS_BASE_URL = 'https://maps.googleapis.com/maps/api';
+const circuitBreakerState = {
+  consecutiveFailures: 0,
+  openedAt: null
+};
+
+const resolveCircuitBreakerConfig = () => ({
+  failureThreshold: parseInt(process.env.MAPS_CIRCUIT_BREAKER_FAILURE_THRESHOLD, 10) || 5,
+  cooldownMs: parseInt(process.env.MAPS_CIRCUIT_BREAKER_COOLDOWN_MS, 10) || 60 * 1000
+});
+
+const isCircuitOpen = () => {
+  if (!circuitBreakerState.openedAt) {
+    return false;
+  }
+
+  const { cooldownMs } = resolveCircuitBreakerConfig();
+  const elapsed = Date.now() - circuitBreakerState.openedAt;
+  if (elapsed >= cooldownMs) {
+    circuitBreakerState.openedAt = null;
+    circuitBreakerState.consecutiveFailures = 0;
+    return false;
+  }
+  return true;
+};
+
+const markUpstreamSuccess = () => {
+  circuitBreakerState.consecutiveFailures = 0;
+  circuitBreakerState.openedAt = null;
+};
+
+const markUpstreamFailure = () => {
+  const { failureThreshold } = resolveCircuitBreakerConfig();
+  circuitBreakerState.consecutiveFailures += 1;
+  if (circuitBreakerState.consecutiveFailures >= failureThreshold) {
+    circuitBreakerState.openedAt = Date.now();
+  }
+};
 
 const requireMapsApiKey = (req, res, next) => {
   if (!process.env.GOOGLE_MAPS_API_KEY) {
@@ -27,6 +64,13 @@ const validate = (req, res, next) => {
 };
 
 const proxyGoogleMapsRequest = async (res, endpoint, params) => {
+  if (isCircuitOpen()) {
+    return res.status(503).json({
+      status: 'SERVICE_UNAVAILABLE',
+      error_message: 'Maps service is temporarily unavailable. Please retry shortly.'
+    });
+  }
+
   try {
     const response = await axios.get(`${GOOGLE_MAPS_BASE_URL}/${endpoint}`, {
       params: {
@@ -35,9 +79,14 @@ const proxyGoogleMapsRequest = async (res, endpoint, params) => {
       },
       timeout: 15000
     });
+    markUpstreamSuccess();
 
     return res.status(response.status).json(response.data);
   } catch (error) {
+    if (!error.response || error.response.status >= 500) {
+      markUpstreamFailure();
+    }
+
     if (error.response?.data) {
       const statusCode =
         error.response.status >= 500 ? 502 : error.response.status;

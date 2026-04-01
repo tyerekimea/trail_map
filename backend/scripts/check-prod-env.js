@@ -7,7 +7,10 @@ const { evaluateEnv } = require('../src/config/env');
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
 dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
-const { missing, weak } = evaluateEnv(process.env);
+const { missing, weak } = evaluateEnv({
+  ...process.env,
+  NODE_ENV: 'production'
+});
 
 if (missing.length > 0 || weak.length > 0) {
   if (missing.length > 0) {

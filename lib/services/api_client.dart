@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 
@@ -39,9 +40,19 @@ class ApiClient {
         'BACKEND_BASE_URL is not configured in .env',
       );
     }
-    return baseUrl.endsWith('/')
+    final normalized = baseUrl.endsWith('/')
         ? baseUrl.substring(0, baseUrl.length - 1)
         : baseUrl;
+    final parsed = Uri.tryParse(normalized);
+    if (parsed == null || !parsed.hasScheme || !parsed.hasAuthority) {
+      throw ApiException('BACKEND_BASE_URL is invalid');
+    }
+    if (kReleaseMode && parsed.scheme.toLowerCase() != 'https') {
+      throw ApiException(
+        'BACKEND_BASE_URL must use HTTPS in release builds',
+      );
+    }
+    return normalized;
   }
 
   Uri _buildUri(String path, {Map<String, String>? queryParams}) {

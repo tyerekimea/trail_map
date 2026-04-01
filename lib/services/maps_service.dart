@@ -11,6 +11,7 @@ class MapsService {
   }) {
     return _client.getJson(
       '/api/maps/geocode',
+      authenticated: true,
       queryParams: {
         'address': address,
         'country': country,
@@ -34,6 +35,7 @@ class MapsService {
 
     return _client.getJson(
       '/api/maps/autocomplete',
+      authenticated: true,
       queryParams: queryParams,
     );
   }
@@ -46,6 +48,7 @@ class MapsService {
   }) {
     return _client.getJson(
       '/api/maps/directions',
+      authenticated: true,
       queryParams: {
         'origin': origin,
         'destination': destination,

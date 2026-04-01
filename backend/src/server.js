@@ -8,11 +8,11 @@ const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const compression = require('compression');
-const rateLimit = require('express-rate-limit');
 const { initFirestore, db } = require('./config/firestore');
 const { validateRuntimeEnv, parseAllowedOrigins } = require('./config/env');
 const logger = require('./utils/logger');
 const { captureException } = require('./services/error-tracker');
+const { createRateLimitWithMetrics } = require('./middleware/rateLimitMetrics');
 
 // Import routes
 const authRoutes = require('./routes/auth');
@@ -62,28 +62,32 @@ app.use(
 );
 
 // Rate limiting
-const limiter = rateLimit({
+const limiter = createRateLimitWithMetrics({
+  scope: 'api',
   windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS, 10) || 15 * 60 * 1000,
   max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS, 10) || 100,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: 'Too many requests from this IP, please try again later.'
+  message: 'Too many requests from this IP, please try again later.',
+  metricsInterval: parseInt(process.env.RATE_LIMIT_METRICS_INTERVAL_MS, 10) || 5 * 60 * 1000
 });
 app.use('/api/', limiter);
 
-const authLimiter = rateLimit({
+const authLimiter = createRateLimitWithMetrics({
+  scope: 'auth',
   windowMs: parseInt(process.env.AUTH_RATE_LIMIT_WINDOW_MS, 10) || 15 * 60 * 1000,
   max: parseInt(process.env.AUTH_RATE_LIMIT_MAX_REQUESTS, 10) || 10,
-  standardHeaders: true,
-  legacyHeaders: false,
   skipSuccessfulRequests: true,
-  message: 'Too many authentication attempts. Please try again later.'
+  message: 'Too many authentication attempts. Please try again later.',
+  metricsInterval: parseInt(process.env.RATE_LIMIT_METRICS_INTERVAL_MS, 10) || 5 * 60 * 1000
 });
 app.use('/api/auth', authLimiter);
+limiter.startMetrics();
+authLimiter.startMetrics();
 
 // Body parsing middleware
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+const bodyLimit = process.env.REQUEST_BODY_LIMIT || '1mb';
+const urlEncodedLimit = process.env.REQUEST_URLENCODED_LIMIT || bodyLimit;
+app.use(express.json({ limit: bodyLimit }));
+app.use(express.urlencoded({ extended: true, limit: urlEncodedLimit }));
 
 app.use((req, res, next) => {
   req.requestId = req.get('x-request-id') || crypto.randomUUID();
@@ -235,6 +239,8 @@ server.on('error', (error) => {
 // Graceful shutdown
 process.on('SIGTERM', () => {
   logger.info('SIGTERM signal received, closing HTTP server');
+  limiter.stopMetrics();
+  authLimiter.stopMetrics();
   server.close(() => process.exit(0));
 });
 

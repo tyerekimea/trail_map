@@ -1,11 +1,28 @@
 const axios = require('axios');
+const Sentry = require('@sentry/node');
 const logger = require('../utils/logger');
+
+let sentryInitialized = false;
 
 const isEnabled = () => {
   if (process.env.ERROR_TRACKING_ENABLED === 'false') {
     return false;
   }
   return process.env.NODE_ENV === 'production';
+};
+
+const ensureSentry = () => {
+  const dsn = String(process.env.SENTRY_DSN || '').trim();
+  if (!dsn || sentryInitialized) {
+    return;
+  }
+
+  Sentry.init({
+    dsn,
+    environment: process.env.NODE_ENV || 'development',
+    tracesSampleRate: Number(process.env.SENTRY_TRACES_SAMPLE_RATE || 0)
+  });
+  sentryInitialized = true;
 };
 
 const captureException = async (error, context = {}) => {
@@ -27,7 +44,16 @@ const captureException = async (error, context = {}) => {
   logger.error('Unhandled exception captured', { error, context });
 
   const webhookUrl = String(process.env.ERROR_WEBHOOK_URL || '').trim();
-  if (!isEnabled() || !webhookUrl) {
+  if (!isEnabled()) {
+    return;
+  }
+
+  ensureSentry();
+  if (sentryInitialized) {
+    Sentry.captureException(error, { extra: context });
+  }
+
+  if (!webhookUrl) {
     return;
   }
 

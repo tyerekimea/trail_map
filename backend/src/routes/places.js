@@ -1,11 +1,14 @@
 const crypto = require('crypto');
 const express = require('express');
-const { body, validationResult } = require('express-validator');
+const { body, query, validationResult } = require('express-validator');
 const { db, mapSnapshot, toDate } = require('../config/firestore');
 const { protect } = require('../middleware/auth');
 const logger = require('../utils/logger');
 
 const router = express.Router();
+const MAX_SYNC_PULL_LIMIT = parseInt(process.env.PLACES_SYNC_PULL_MAX_LIMIT, 10) || 1000;
+const DEFAULT_SYNC_PULL_LIMIT =
+  parseInt(process.env.PLACES_SYNC_PULL_DEFAULT_LIMIT, 10) || 500;
 
 const parseDate = (value) => {
   if (!value) return null;
@@ -48,10 +51,13 @@ const mapPlaceDoc = (doc) => {
   };
 };
 
-const getUserPlaces = async (userId, { since } = {}) => {
+const getUserPlaces = async (userId, { since, limit } = {}) => {
   let query = db.collection('places').where('userId', '==', userId);
   if (since) {
     query = query.where('updatedAt', '>', since);
+  }
+  if (limit) {
+    query = query.limit(limit);
   }
   const snapshot = await query.get();
   return snapshot.docs.map(mapPlaceDoc);
@@ -339,37 +345,66 @@ const handlePushSync = async (req, res) => {
 };
 
 // Pull all server-side changes after a given timestamp
-router.get('/sync/pull', protect, async (req, res) => {
-  try {
-    const userId = req.user._id;
-    const since = parseDate(req.query.since);
-    const places = await getUserPlaces(userId, { since });
+router.get(
+  '/sync/pull',
+  protect,
+  [
+    query('since')
+      .optional()
+      .isISO8601()
+      .withMessage('since must be a valid ISO date'),
+    query('limit')
+      .optional()
+      .isInt({ min: 1, max: MAX_SYNC_PULL_LIMIT })
+      .withMessage(`limit must be between 1 and ${MAX_SYNC_PULL_LIMIT}`)
+  ],
+  async (req, res) => {
+    try {
+      const validationErrors = validationResult(req);
+      if (!validationErrors.isEmpty()) {
+        return res.status(400).json({
+          success: false,
+          errors: validationErrors.array()
+        });
+      }
 
-    logger.debug('Sync pull requested', { userId, sinceDate: since?.toISOString(), placesCount: places.length });
+      const userId = req.user._id;
+      const since = parseDate(req.query.since);
+      const limit = req.query.limit
+        ? Math.min(Number(req.query.limit), MAX_SYNC_PULL_LIMIT)
+        : DEFAULT_SYNC_PULL_LIMIT;
+      const places = await getUserPlaces(userId, { since, limit });
 
-    const filteredPlaces = places
-      .sort((a, b) => {
+      logger.debug('Sync pull requested', {
+        userId,
+        sinceDate: since?.toISOString(),
+        placesCount: places.length,
+        limit
+      });
+
+      const filteredPlaces = places.sort((a, b) => {
         const aDate = a.updatedAt || a.createdAt || new Date(0);
         const bDate = b.updatedAt || b.createdAt || new Date(0);
         return aDate.getTime() - bDate.getTime();
       });
 
-    res.json({
-      success: true,
-      data: {
-        records: filteredPlaces.map(mapPlaceToSyncRecord),
-        serverTime: new Date().toISOString()
-      }
-    });
-  } catch (error) {
-    logger.error('Sync pull failed', { userId: req.user._id, error });
-    res.status(500).json({
-      success: false,
-      message: 'Server error',
-      error: error.message
-    });
+      res.json({
+        success: true,
+        data: {
+          records: filteredPlaces.map(mapPlaceToSyncRecord),
+          serverTime: new Date().toISOString()
+        }
+      });
+    } catch (error) {
+      logger.error('Sync pull failed', { userId: req.user._id, error });
+      res.status(500).json({
+        success: false,
+        message: 'Server error',
+        error: error.message
+      });
+    }
   }
-});
+);
 
 // Push local batched changes from the client
 router.post(
@@ -422,10 +457,30 @@ router.post(
 );
 
 // Get all active (non-deleted) places for user
-router.get('/', protect, async (req, res) => {
+router.get(
+  '/',
+  protect,
+  [
+    query('limit')
+      .optional()
+      .isInt({ min: 1, max: MAX_SYNC_PULL_LIMIT })
+      .withMessage(`limit must be between 1 and ${MAX_SYNC_PULL_LIMIT}`)
+  ],
+  async (req, res) => {
   try {
+    const validationErrors = validationResult(req);
+    if (!validationErrors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        errors: validationErrors.array()
+      });
+    }
+
     const userId = req.user._id;
-    const places = (await getUserPlaces(userId))
+    const limit = req.query.limit
+      ? Math.min(Number(req.query.limit), MAX_SYNC_PULL_LIMIT)
+      : DEFAULT_SYNC_PULL_LIMIT;
+    const places = (await getUserPlaces(userId, { limit }))
       .filter((place) => !place.deletedAt)
       .sort((a, b) => {
         const aDate = a.createdAt || new Date(0);
@@ -448,7 +503,8 @@ router.get('/', protect, async (req, res) => {
       error: error.message
     });
   }
-});
+  }
+);
 
 // Create saved place
 router.post(

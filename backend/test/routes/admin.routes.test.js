@@ -83,7 +83,7 @@ describe('admin routes', () => {
     expect(response.body.data.businesses.verified).toBe(8);
   });
 
-  test('GET /api/admin/users paginates users without full scan path', async () => {
+  test('GET /api/admin/users paginates users without offset scan', async () => {
     const usersQuery = {
       count: jest.fn(() => ({
         get: jest.fn().mockResolvedValue({
@@ -92,8 +92,8 @@ describe('admin routes', () => {
       })),
       where: jest.fn(),
       orderBy: jest.fn(),
-      offset: jest.fn(),
       limit: jest.fn(),
+      startAfter: jest.fn(),
       get: jest.fn().mockResolvedValue({
         docs: [
           {
@@ -125,8 +125,8 @@ describe('admin routes', () => {
     };
     usersQuery.where.mockReturnValue(usersQuery);
     usersQuery.orderBy.mockReturnValue(usersQuery);
-    usersQuery.offset.mockReturnValue(usersQuery);
     usersQuery.limit.mockReturnValue(usersQuery);
+    usersQuery.startAfter.mockReturnValue(usersQuery);
 
     db.collection.mockImplementation((name) => {
       if (name === 'users') return usersQuery;
@@ -143,5 +143,41 @@ describe('admin routes', () => {
     expect(response.body.data.total).toBe(2);
     expect(response.body.data.users).toHaveLength(2);
     expect(response.body.data.users[0].password).toBeUndefined();
+    expect(usersQuery.orderBy).toHaveBeenCalledWith('createdAt', 'desc');
+    expect(usersQuery.limit).toHaveBeenCalledWith(21);
+  });
+
+  test('GET /api/admin/users rejects unknown cursor', async () => {
+    const usersQuery = {
+      count: jest.fn(() => ({
+        get: jest.fn().mockResolvedValue({
+          data: () => ({ count: 2 })
+        })
+      })),
+      where: jest.fn(),
+      orderBy: jest.fn(),
+      limit: jest.fn(),
+      startAfter: jest.fn(),
+      get: jest.fn().mockResolvedValue({ docs: [] }),
+      doc: jest.fn(() => ({
+        get: jest.fn().mockResolvedValue({ exists: false })
+      }))
+    };
+    usersQuery.where.mockReturnValue(usersQuery);
+    usersQuery.orderBy.mockReturnValue(usersQuery);
+    usersQuery.limit.mockReturnValue(usersQuery);
+    usersQuery.startAfter.mockReturnValue(usersQuery);
+
+    db.collection.mockImplementation((name) => {
+      if (name === 'users') return usersQuery;
+      throw new Error(`Unexpected collection: ${name}`);
+    });
+
+    const response = await request(app).get('/api/admin/users').query({
+      cursor: 'missing-user'
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.body.success).toBe(false);
   });
 });

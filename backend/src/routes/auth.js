@@ -13,6 +13,7 @@ const {
 const { sendPasswordResetEmail } = require('../utils/email');
 const logger = require('../utils/logger');
 const { protect } = require('../middleware/auth');
+const { writeAuditLog } = require('../utils/audit');
 
 const router = express.Router();
 const REFRESH_TOKEN_COLLECTION = 'refreshTokens';
@@ -390,6 +391,15 @@ router.post(
         email, 
         emailSent 
       });
+      void writeAuditLog({
+        action: 'auth.password_reset_requested',
+        actorId: user._id,
+        targetId: user._id,
+        requestId: req.requestId,
+        ip: req.ip,
+        userAgent: req.get('user-agent'),
+        metadata: { emailSent }
+      });
 
       return res.status(200).json({
         success: true,
@@ -397,6 +407,14 @@ router.post(
       });
     } catch (error) {
       logger.error('Password reset request failed', { error });
+      void writeAuditLog({
+        action: 'auth.password_reset_requested',
+        status: 'failed',
+        requestId: req.requestId,
+        ip: req.ip,
+        userAgent: req.get('user-agent'),
+        metadata: { error: error.message }
+      });
       return res.status(500).json({
         success: false,
         message: 'Server error',
@@ -451,14 +469,45 @@ router.post(
 
       // Update password
       const hashedPassword = await hashPassword(newPassword);
+      const userTokenSnapshot = await db
+        .collection(REFRESH_TOKEN_COLLECTION)
+        .where('userId', '==', user._id)
+        .where('revoked', '==', false)
+        .get();
+
+      const batch = db.batch();
       await db.collection('users').doc(user._id).update({
         password: hashedPassword,
         passwordResetToken: null,
         passwordResetExpires: null,
         updatedAt: now
       });
+      userTokenSnapshot.docs.forEach((tokenDoc) => {
+        batch.set(
+          tokenDoc.ref,
+          {
+            revoked: true,
+            revokedAt: now,
+            updatedAt: now,
+            replacedBy: null
+          },
+          { merge: true }
+        );
+      });
+      await batch.commit();
 
       logger.info('Password reset successful', { userId: user._id, email });
+      void writeAuditLog({
+        action: 'auth.password_reset_completed',
+        actorId: user._id,
+        targetId: user._id,
+        requestId: req.requestId,
+        ip: req.ip,
+        userAgent: req.get('user-agent'),
+        metadata: {
+          revokedRefreshTokens: userTokenSnapshot.size
+        }
+      });
 
       return res.status(200).json({
         success: true,
@@ -466,6 +515,14 @@ router.post(
       });
     } catch (error) {
       logger.error('Password reset failed', { error });
+      void writeAuditLog({
+        action: 'auth.password_reset_completed',
+        status: 'failed',
+        requestId: req.requestId,
+        ip: req.ip,
+        userAgent: req.get('user-agent'),
+        metadata: { error: error.message }
+      });
       return res.status(500).json({
         success: false,
         message: 'Server error',
@@ -503,6 +560,14 @@ router.post('/logout', protect, async (req, res) => {
     }
 
     logger.info('User logged out', { userId: req.user._id });
+    void writeAuditLog({
+      action: 'auth.logout',
+      actorId: req.user._id,
+      targetId: req.user._id,
+      requestId: req.requestId,
+      ip: req.ip,
+      userAgent: req.get('user-agent')
+    });
     
     return res.status(200).json({
       success: true,
@@ -510,6 +575,16 @@ router.post('/logout', protect, async (req, res) => {
     });
   } catch (error) {
     logger.error('Logout failed', { error });
+    void writeAuditLog({
+      action: 'auth.logout',
+      actorId: req.user?._id,
+      targetId: req.user?._id,
+      status: 'failed',
+      requestId: req.requestId,
+      ip: req.ip,
+      userAgent: req.get('user-agent'),
+      metadata: { error: error.message }
+    });
     return res.status(500).json({
       success: false,
       message: 'Server error',

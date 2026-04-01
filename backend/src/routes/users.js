@@ -7,6 +7,7 @@ const { protect } = require('../middleware/auth');
 const { comparePassword } = require('../utils/user');
 const { sendAccountDeletionConfirmationEmail } = require('../utils/email');
 const logger = require('../utils/logger');
+const { writeAuditLog } = require('../utils/audit');
 
 const deleteUserCollectionDocs = async (collectionName, userId) => {
   const snapshot = await db.collection(collectionName).where('userId', '==', userId).get();
@@ -139,6 +140,18 @@ router.post('/export-data', protect, async (req, res) => {
     });
 
     logger.info('User data exported', { userId });
+    void writeAuditLog({
+      action: 'user.export_data',
+      actorId: userId,
+      targetId: userId,
+      requestId: req.requestId,
+      ip: req.ip,
+      userAgent: req.get('user-agent'),
+      metadata: {
+        placesCount: userData.places.length,
+        analyticsCount: userData.analytics.length
+      }
+    });
 
     return res.json({
       success: true,
@@ -147,6 +160,16 @@ router.post('/export-data', protect, async (req, res) => {
     });
   } catch (error) {
     logger.error('Failed to export user data', { userId: req.user._id, error });
+    void writeAuditLog({
+      action: 'user.export_data',
+      actorId: req.user?._id,
+      targetId: req.user?._id,
+      status: 'failed',
+      requestId: req.requestId,
+      ip: req.ip,
+      userAgent: req.get('user-agent'),
+      metadata: { error: error.message }
+    });
     return res.status(500).json({
       success: false,
       message: 'Failed to export data',
@@ -191,6 +214,16 @@ router.delete(
       // Verify password against stored hash (req.user is sanitized and has no password field).
       const passwordMatch = await comparePassword(password, currentUser.password);
       if (!passwordMatch) {
+        void writeAuditLog({
+          action: 'user.delete_account',
+          actorId: userId,
+          targetId: userId,
+          status: 'denied',
+          requestId: req.requestId,
+          ip: req.ip,
+          userAgent: req.get('user-agent'),
+          metadata: { reason: 'invalid_password' }
+        });
         return res.status(401).json({
           success: false,
           message: 'Invalid password'
@@ -214,6 +247,14 @@ router.delete(
       });
 
       logger.info('User account deleted', { userId, email: userEmail });
+      void writeAuditLog({
+        action: 'user.delete_account',
+        actorId: userId,
+        targetId: userId,
+        requestId: req.requestId,
+        ip: req.ip,
+        userAgent: req.get('user-agent')
+      });
 
       return res.status(200).json({
         success: true,
@@ -221,6 +262,16 @@ router.delete(
       });
     } catch (error) {
       logger.error('Failed to delete user account', { userId: req.user._id, error });
+      void writeAuditLog({
+        action: 'user.delete_account',
+        actorId: req.user?._id,
+        targetId: req.user?._id,
+        status: 'failed',
+        requestId: req.requestId,
+        ip: req.ip,
+        userAgent: req.get('user-agent'),
+        metadata: { error: error.message }
+      });
       return res.status(500).json({
         success: false,
         message: 'Failed to delete account',

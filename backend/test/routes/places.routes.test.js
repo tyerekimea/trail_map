@@ -42,11 +42,14 @@ describe('places routes', () => {
 
   beforeEach(() => {
     getPlacesQuery = jest.fn();
+    const placesQuery = {
+      where: jest.fn(() => placesQuery),
+      limit: jest.fn(() => placesQuery),
+      get: getPlacesQuery
+    };
 
     placesCollection = {
-      where: jest.fn(() => ({
-        get: getPlacesQuery
-      }))
+      where: jest.fn(() => placesQuery)
     };
 
     db.collection.mockImplementation((name) => {

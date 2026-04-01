@@ -85,6 +85,7 @@ This repo now includes:
 - `render.yaml` (Render Blueprint config)
 - `backend/env.production.example` (production env template)
 - `npm run check:prod-env` (env sanity checker)
+- `npm run check:predeploy` (pre-deployment verification script)
 
 ### 4.2 Deploy with Blueprint (recommended)
 
@@ -105,6 +106,7 @@ set -a
 source env.production.example
 set +a
 npm run check:prod-env
+npm run check:predeploy
 ```
 
 Render gives a public HTTPS URL like:
@@ -161,9 +163,11 @@ API_URL=https://your-backend-domain.com
 - Strict `ALLOWED_ORIGINS`
 - Rate limit enabled
 - Request validation enabled for non-map write routes
+- Explicit request body limits enabled
 - Monitoring on `/health`
 - Error tracking/log aggregation enabled
 - Backup and recovery plan for Firestore
+- Secret rotation runbook documented
 
 ## 9. Operational Checks After Go-Live
 
@@ -204,4 +208,5 @@ Run these after every deploy:
 
 - Monitoring and alerting setup guide: `backend/ops/MONITORING_AND_ALERTING.md`
 - Backup and recovery guide: `backend/ops/BACKUP_AND_RECOVERY.md`
+- Secret rotation guide: `backend/ops/SECRET_ROTATION.md`
 - Firestore schema reference: `backend/SCHEMA.md`

@@ -8,8 +8,10 @@
     "dev": "nodemon src/server.js",
     "test": "jest --coverage",
     "test:integration": "RUN_INTEGRATION_TESTS=true jest --runInBand test/routes/*-advanced.test.js",
+    "test:production-gate": "jest --coverage --config jest.production.config.js --runInBand",
     "lint": "eslint src/**/*.js",
-    "check:prod-env": "node scripts/check-prod-env.js"
+    "check:prod-env": "node scripts/check-prod-env.js",
+    "check:predeploy": "node scripts/predeploy-check.js"
   },
   "keywords": [
     "maps",
@@ -20,6 +22,7 @@
   "author": "Your Name",
   "license": "MIT",
   "dependencies": {
+    "@sentry/node": "^8.55.1",
     "axios": "^1.6.2",
     "bcryptjs": "^2.4.3",
     "compression": "^1.7.4",
@@ -28,11 +31,11 @@
     "express": "^4.18.2",
     "express-rate-limit": "^7.1.5",
     "express-validator": "^7.0.1",
-    "firebase-admin": "^12.0.0",
+    "firebase-admin": "^13.7.0",
     "helmet": "^7.1.0",
     "jsonwebtoken": "^9.0.2",
     "morgan": "^1.10.0",
-    "nodemailer": "^6.9.13",
+    "nodemailer": "^8.0.4",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.0"
   },

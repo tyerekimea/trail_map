@@ -31,6 +31,12 @@ jobs:
       - name: Test backend
         run: npm test -- --runInBand
 
+      - name: Enforce production coverage gate
+        run: npm run test:production-gate -- --runInBand
+
+      - name: Audit backend runtime dependencies (high+)
+        run: npm audit --omit=dev --audit-level=high
+
   flutter:
     runs-on: ubuntu-latest
     steps:
